@@ -50,6 +50,8 @@ class FieldOccurrence < ApplicationRecord
   belongs_to :collecting_event, inverse_of: :field_occurrences
   belongs_to :ranged_lot_category, inverse_of: :ranged_lots
 
+  has_one :otu, through: :taxon_determination
+
   has_many :georeferences, through: :collecting_event
   has_many :geographic_items, through: :georeferences
 

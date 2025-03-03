@@ -61,6 +61,7 @@ class Lead < ApplicationRecord
   belongs_to :redirect, class_name: 'Lead'
 
   has_many :redirecters, class_name: 'Lead', foreign_key: :redirect_id, inverse_of: :redirect, dependent: :nullify
+  has_many :lead_items, inverse_of: :lead, dependent: :restrict_with_error
 
   before_save :set_is_public_only_on_root
 
@@ -333,6 +334,16 @@ class Lead < ApplicationRecord
           text: o.text.nil? ? '' : o.text.truncate(40)
         }
       end
+    end
+  end
+
+  def self.batch_create(params)
+    l = Lead.create(params.require(:lead).permit(:text))
+    if l.persisted?
+      otus = ::Queries::Otu::Filter.new(params[:otu_query]).all
+      LeadItem.batch_populate(l.id, otus)
+    else
+      l.errors.full_messages
     end
   end
 

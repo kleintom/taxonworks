@@ -276,6 +276,16 @@ class LeadsController < ApplicationController
     render '/leads/api/v1/key'
   end
 
+  # .Array
+  def batch_create
+    o = Lead.batch_create(params.merge(project_id: sessions_current_project_id))
+    if o.kind_of?(Array)
+      render json: o
+    else
+      render json: o, status: :unprocessable_entity
+    end
+  end
+
   private
 
   def set_lead

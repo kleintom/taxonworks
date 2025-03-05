@@ -43,11 +43,14 @@ class LeadsController < ApplicationController
   # GET /leads/1.json
   def show
     if @lead.children.present?
+      @lead.populate_new_lead_items
       expand_lead
     else
       @children = nil
       @futures = nil
       @ancestors = @lead.ancestors.reverse
+      @lead_item_otus = @lead.apportioned_lead_item_otus
+      @lead.populate_new_lead_items
     end
   end
 
@@ -98,6 +101,7 @@ class LeadsController < ApplicationController
     num_to_add.times do
       @lead.children.create!
     end
+    @lead.populate_new_lead_items
     expand_lead
     render action: :show, status: :created, location: @lead
   end
@@ -286,6 +290,19 @@ class LeadsController < ApplicationController
     end
   end
 
+  def add_otu_index
+    new_lead = Lead.find(params[:lead_id])
+    #byebug
+    LeadItem.where(lead_id: new_lead.siblings.map(&:id),
+      otu_id: params[:otu_id]).destroy_all
+
+    LeadItem.create!(lead_id: params[:lead_id], otu_id: params[:otu_id])
+
+    @lead = new_lead.parent
+    expand_lead
+    render action: :show, location: @lead
+  end
+
   private
 
   def set_lead
@@ -308,6 +325,7 @@ class LeadsController < ApplicationController
     @children = @lead.children
     @futures = @lead.children.map(&:future)
     @ancestors = @lead.ancestors.reverse
+    @lead_item_otus = @lead.apportioned_lead_item_otus
   end
 
   def new_couplet

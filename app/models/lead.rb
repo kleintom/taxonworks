@@ -61,7 +61,8 @@ class Lead < ApplicationRecord
   belongs_to :redirect, class_name: 'Lead'
 
   has_many :redirecters, class_name: 'Lead', foreign_key: :redirect_id, inverse_of: :redirect, dependent: :nullify
-  has_many :lead_items, inverse_of: :lead, dependent: :restrict_with_error
+  has_many :lead_items, inverse_of: :lead, dependent: :destroy
+  has_many :lead_item_otus, through: :lead_items, source: :otu
 
   before_save :set_is_public_only_on_root
 
@@ -183,7 +184,14 @@ class Lead < ApplicationRecord
       d = Lead.create!(text: t1, parent: self)
     end
 
+    populate_new_lead_items
+
     [c.id, d.id]
+  end
+
+  def populate_new_lead_items
+    return if lead_items.count == 0 || children.count == 0
+    LeadItem.batch_populate(children.first.id, lead_item_otus)
   end
 
   # Destroy the children of this Lead, re-appending the grandchildren to self
@@ -345,6 +353,21 @@ class Lead < ApplicationRecord
     else
       l.errors.full_messages
     end
+  end
+
+  def apportioned_lead_item_otus
+    {
+      # It should be the case that the children otu lists are all disjoint, and
+      # their sum equals self's otu list.
+      # TODO: some (unresolved) otus may be repeated on children at this point.
+      parent: lead_item_otus,
+      children: children.map { |c|
+        c.lead_item_otus.map { |o|
+        # TODO only return matches
+          lead_item_otus.find_index{ |oo| oo.id == o.id }
+        }
+      }
+    }
   end
 
   private

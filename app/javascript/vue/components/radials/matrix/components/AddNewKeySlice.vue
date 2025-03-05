@@ -25,12 +25,8 @@
       class="margin-medium-top"
     >
       <h3>Created</h3>
-      <ul>
-        <li>Rows: {{ created.rows }}</li>
-        <li>Columns: {{ created.columns }}</li>
-      </ul>
       <a
-        :href="`${RouteNames.NewLead}/${created.lead_id}`"
+        :href="`${RouteNames.NewLead}/lead_id=${created.id}`"
         >Edit: {{  }}</a
       >
     </div>

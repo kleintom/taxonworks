@@ -14,7 +14,8 @@ class LeadItem < ApplicationRecord
   def self.batch_populate(lead_id, otus)
     otus.each do |o|
       # TODO check result
-      LeadItem.create!(lead_id:, otu: o)
+      puts 'BBBBBBBBBBBBBB'
+      LeadItem.find_or_create_by!(lead_id:, otu: o)
     end
   end
 end

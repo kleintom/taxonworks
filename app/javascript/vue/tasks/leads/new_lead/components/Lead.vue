@@ -4,6 +4,7 @@
     full-screen
   />
 
+  <div class="container">
   <BlockLayout class="lead">
     <template #header>
       <div class="full_width header-left-right">
@@ -158,6 +159,15 @@
       />
     </template>
   </BlockLayout>
+
+
+  <LeadItems
+    :otu-list="leadOtus"
+    :checked="checkedOtus"
+    @add-otu-index="(otuIndex) => addOtuIndex(otuIndex)"
+    class="lead_items"
+  />
+</div>
 </template>
 
 <script setup>
@@ -173,6 +183,7 @@ import { useUserOkayToLeave } from './composables/useUserOkayToLeave.js'
 import Annotations from './Annotations.vue'
 import BlockLayout from '@/components/layout/BlockLayout.vue'
 import FutureCoupletsList from '../../components/FutureCoupletsList.vue'
+import LeadItems from './LeadItems.vue'
 import OtuChooser from './OtuChooser.vue'
 import RadialAnnotator from '@/components/radials/annotator/annotator.vue'
 import VBtn from '@/components/ui/VBtn/index.vue'
@@ -187,6 +198,14 @@ const props = defineProps({
   redirectOptions: {
     type: Array,
     required: true
+  },
+  leadOtus: {
+    type: Array,
+    default: []
+  },
+  checkedOtus: {
+    type: Array,
+    default: []
   }
 })
 
@@ -254,6 +273,11 @@ function insertCouplet() {
       )
       emit('editingHasOccurred')
   })
+}
+
+
+function addOtuIndex(otu_index) {
+  store.addOtuIndex(props.position, otu_index)
 }
 
 function nextCouplet() {
@@ -349,6 +373,11 @@ function changeLeadPosition(direction) {
   > :first-child button {
     margin-right: 0.5em;
   }
+}
+.container {
+
+}
+.lead_items {
 }
 .lead {
   max-width: 600px;

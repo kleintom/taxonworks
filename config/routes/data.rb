@@ -454,6 +454,9 @@ resources :leads do
     patch :reorder_children, defaults: {format: :json}
     post :insert_key, defaults: {format: :json}
   end
+  collection do
+    post :add_otu_index, defaults: {format: :json}
+  end
 end
 
 resources :loans do

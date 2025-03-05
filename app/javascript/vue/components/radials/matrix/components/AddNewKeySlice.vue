@@ -26,7 +26,7 @@
     >
       <h3>Created</h3>
       <a
-        :href="`${RouteNames.NewLead}/lead_id=${created.id}`"
+        :href="`${RouteNames.NewLead}?lead_id=${created.id}`"
         >Edit: {{  }}</a
       >
     </div>
@@ -65,7 +65,7 @@ function addToLead() {
     .then(({ body }) => {
       created.value = body
       TW.workbench.alert.create(
-        `${body.rows} rows and ${body.columns} columns were successfully created.`,
+        `New key was successfully created.`,
         'notice'
       )
       keyName.value = ''

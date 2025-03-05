@@ -4,7 +4,6 @@
     full-screen
   />
 
-  <div class="container">
   <BlockLayout class="lead">
     <template #header>
       <div class="full_width header-left-right">
@@ -65,7 +64,7 @@
       >
         <i>This side is currently redirecting, to add leads below remove the redirection.</i>
       </div>
-      <div class="navigation">
+      <div class="lead_navigation">
         <VBtn
           :disabled="nextButtonDisabled"
           color="update"
@@ -167,7 +166,6 @@
     @add-otu-index="(otuIndex) => addOtuIndex(otuIndex)"
     class="lead_items"
   />
-</div>
 </template>
 
 <script setup>
@@ -374,18 +372,26 @@ function changeLeadPosition(direction) {
     margin-right: 0.5em;
   }
 }
-.container {
 
-}
 .lead_items {
-}
-.lead {
+  display: flex;
+  justify-content: center;
+  flex-direction: column;
+  margin: 0 auto;
+  width: 100%;
   max-width: 600px;
-  min-width: 360px;
-  flex-grow: 1;
-  margin-bottom: 2em;
 }
-.navigation {
+
+.lead {
+  display: flex;
+  max-width: 600px;
+  width: 100%;
+  min-width: 360px;
+  //flex-grow: 1;
+  margin-bottom: 2em;
+  margin: 0 auto;
+}
+.lead_navigation {
   display: flex;
   justify-content: space-evenly;
   gap: 3px;

@@ -350,6 +350,7 @@ class Lead < ApplicationRecord
     if l.persisted?
       otus = ::Queries::Otu::Filter.new(params[:otu_query]).all
       LeadItem.batch_populate(l.id, otus)
+      return l
     else
       l.errors.full_messages
     end

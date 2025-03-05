@@ -1,25 +1,28 @@
 <template>
 
-  <div
-    v-if="otuList && checked"
-    v-for="(otu, i) in otuList"
-    :index="otu.id"
-  >
-    <span
-      v-if="checked.findIndex((c) => (c == i)) != -1"
-      class="in"
+  <div>
+    <div
+      v-if="otuList && checked"
+      v-for="(otu, i) in otuList"
+      :index="otu.id"
+      class="lead_otu_row"
     >
-      &#10003;
-    </span>
+      <span
+        v-if="checked.findIndex((c) => (c == i)) != -1"
+        class="in"
+      >
+        &#10003;
+      </span>
 
-    <span
-      v-else
-      class="out"
-      @click="emit('addOtuIndex', i)"
-    >
-      Add
-    </span>
-    <span v-html="otu.object_tag" />
+      <span
+        v-else
+        class="out"
+        @click="emit('addOtuIndex', i)"
+      >
+        Add
+      </span>
+      <span v-html="otu.object_tag" />
+    </div>
   </div>
 
 </template>
@@ -49,11 +52,16 @@ const emit = defineEmits(['addOtuIndex'])
   margin-right: 1.5em;
   color: green;
 }
+
 .out {
   display: inline-block;
   width: 16px;
   height: 16px;
   margin-right: 1.5em;
   cursor: pointer;
+}
+
+.lead_otu_row:nth-child(odd) {
+  background-color: rgb(240, 240, 240);
 }
 </style>

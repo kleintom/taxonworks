@@ -121,8 +121,6 @@ const updateButtonText = computed(() => {
 })
 
 function processKeyMeta() {
-  const a = a + 1
-  return
   const payload = {
     lead: store.root
   }

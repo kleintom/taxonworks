@@ -43,14 +43,14 @@ class LeadsController < ApplicationController
   # GET /leads/1.json
   def show
     if @lead.children.present?
-      @lead.populate_new_lead_items
+      @lead.register_new_lead_items
       expand_lead
     else
       @children = nil
       @futures = nil
       @ancestors = @lead.ancestors.reverse
-      @lead_item_otus = @lead.apportioned_lead_item_otus
-      @lead.populate_new_lead_items
+      #@lead.populate_new_lead_items
+      #@lead_item_otus = @lead.apportioned_lead_item_otus
     end
   end
 
@@ -101,7 +101,7 @@ class LeadsController < ApplicationController
     num_to_add.times do
       @lead.children.create!
     end
-    @lead.populate_new_lead_items
+    @lead.register_new_lead_items
     expand_lead
     render action: :show, status: :created, location: @lead
   end
@@ -137,6 +137,7 @@ class LeadsController < ApplicationController
 
     begin
       @lead.transaction_nuke
+      @lead.populate_lead_items
       respond_to do |format|
         flash[:notice] = 'Key was succesfully destroyed.'
         format.html { destroy_redirect @lead }

@@ -184,14 +184,27 @@ class Lead < ApplicationRecord
       d = Lead.create!(text: t1, parent: self)
     end
 
-    populate_new_lead_items
+    populate_lead_items
 
     [c.id, d.id]
   end
 
-  def populate_new_lead_items
-    return if lead_items.count == 0 || children.count == 0
-    LeadItem.batch_populate(children.first.id, lead_item_otus)
+  def register_new_lead_items
+    otus = []
+    child_ids = children.map(&:id)
+    lead_item_otus.each do |o|
+      if !LeadItem.exists_on_lead_set(o.id, child_ids)
+        otus << o
+      end
+    end
+
+    populate_lead_items(otus)
+  end
+
+  def populate_lead_items(otus = lead_item_otus)
+    return if lead_items.count == 0 || children.count < 2
+
+    LeadItem.batch_populate(children.last.id, otus)
   end
 
   # Destroy the children of this Lead, re-appending the grandchildren to self

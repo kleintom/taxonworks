@@ -18,9 +18,7 @@
         v-else
         class="out"
         @click="emit('addOtuIndex', i)"
-      >
-        Add
-      </span>
+      />
       <span v-html="otu.object_tag" />
     </div>
   </div>
@@ -49,16 +47,19 @@ const emit = defineEmits(['addOtuIndex'])
   display: inline-block;
   width: 16px;
   height: 16px;
-  margin-right: 1.5em;
+  margin-right: .5em;
   color: green;
+  text-align: center;
 }
 
 .out {
   display: inline-block;
-  width: 16px;
-  height: 16px;
-  margin-right: 1.5em;
+  width: 10px;
+  height: 10px;
+  margin-right: .5em;
   cursor: pointer;
+  border: 3px solid rgb(70, 70, 70);
+  vertical-align: middle;
 }
 
 .lead_otu_row:nth-child(odd) {

@@ -326,9 +326,9 @@ class OtusController < ApplicationController
      .joins('LEFT OUTER JOIN observation_matrix_column_items ON descriptors.id = observation_matrix_column_items.descriptor_id')
      .eager_load(image: [:attribution])
     if params[:sort_order]
-      @depictions = @depictions.order( Arel.sql( conditional_sort('depictions.depiction_object_type', params[:sort_order]) + ", observation_matrix_column_items.position, depictions.depiction_object_id, depictions.position" ))
+      @depictions = @depictions.order( Arel.sql( conditional_sort('depictions.depiction_object_type', params[:sort_order]) + ', observation_matrix_column_items.position, depictions.depiction_object_id, depictions.position' ))
     else
-      @depictions = @depictions.order("depictions.depiction_object_type, observation_matrix_column_items.position, depictions.depiction_object_id, depictions.position")
+      @depictions = @depictions.order('depictions.depiction_object_type, observation_matrix_column_items.position, depictions.depiction_object_id, depictions.position')
     end
     @depictions = @depictions.page(params[:page]).per(params[:per])
 
@@ -342,6 +342,8 @@ class OtusController < ApplicationController
 
   # GET /api/v1/otus/:id/inventory/taxonomy
   def api_taxonomy_inventory
+    byebug
+    @project_scope_tag_id = params[:project_scope_tag]
     render '/otus/api/v1/inventory/taxonomy'
   end
 

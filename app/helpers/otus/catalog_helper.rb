@@ -65,9 +65,16 @@ module Otus::CatalogHelper
     similar_otus: [],
     common_names: false,
     language_alpha2: nil,
-    max_descendants_depth: Float::INFINITY
+    max_descendants_depth: Float::INFINITY,
+    project_scope_tag_id: nil
   )
-    s = Otu.where(taxon_name_id: otu.taxon_name_id).where.not(id: otu.id).where.not(name: (otu.name.presence)).to_a
+    q = Otu.where(taxon_name_id: otu.taxon_name_id).where.not(id: otu.id).where.not(name: (otu.name.presence))
+
+    if project_scope_tag.present?
+      q = q.where(keyword_id: project_scope_tag_id).where(tag_object_type: 'Otu')
+    end
+
+    s = q.to_a
 
     similar_otus += s.collect { |p| p.id }
 

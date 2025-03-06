@@ -137,7 +137,6 @@ class LeadsController < ApplicationController
 
     begin
       @lead.transaction_nuke
-      @lead.populate_lead_items
       respond_to do |format|
         flash[:notice] = 'Key was succesfully destroyed.'
         format.html { destroy_redirect @lead }
@@ -156,12 +155,14 @@ class LeadsController < ApplicationController
   # can be called on any lead, not just root.
   # POST /leads/1/destroy_subtree.json
   def destroy_subtree
+    parent = @lead.parent
     begin
       @lead.transaction_nuke
     rescue ActiveRecord::RecordInvalid
       render json: @lead.errors, status: :unprocessable_entity
     end
 
+    parent.register_new_lead_items
     head :no_content
   end
 

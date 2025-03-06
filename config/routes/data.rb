@@ -459,6 +459,13 @@ resources :leads do
   end
 end
 
+resources :lead_items do
+  concerns [:data_routes]
+  collection do
+    post :destroy_item, defaults: {format: :json}
+  end
+end
+
 resources :loans do
   concerns [:data_routes]
   member do

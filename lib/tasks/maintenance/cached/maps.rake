@@ -238,13 +238,18 @@ namespace :tw do
           ids_out = CachedMapItemTranslation.select(:geographic_item_id)
           .distinct.pluck(:geographic_item_id).compact
 
-          ids_in__ga = GeographicArea.joins(:asserted_distributions).distinct
-            .map(&:default_geographic_item_id).compact
+          ids_in__ga = GeographicArea.joins(:asserted_distributions)
+            .joins(:geographic_areas_geographic_items)
+            .merge(GeographicAreasGeographicItem.default_geographic_item_data)
+            .distinct
+            .pluck('geographic_areas_geographic_items.geographic_item_id').compact
           puts "Total GeographicArea-based asserted distributions: #{ids_in__ga.count}"
           puts "GeographicArea-based asserted distributions already done: #{(ids_out & ids_in__ga).count}"
 
-          ids_in__gz = Gazetteer.joins(:asserted_distributions).distinct
-            .map(&:default_geographic_item_id).compact
+          ids_in__gz = Gazetteer.joins(:asserted_distributions)
+            .joins(:geographic_item)
+            .distinct
+            .pluck('geographic_items.id').compact
           puts "Total Gazetteer-based asserted distributions: #{ids_in__gz.count}"
           puts "Gazetteer-based asserted distributions already done: #{(ids_out & ids_in__gz).count}"
 

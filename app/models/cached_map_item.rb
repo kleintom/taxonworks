@@ -42,6 +42,10 @@ class CachedMapItem < ApplicationRecord
   include Housekeeping::Timestamps
   include Shared::IsData
 
+  # An area proxy for shapes with enough vertices to make geography
+  # intersections "expensive".
+  LARGE_AREA_SQ_M = 250_000 * 1_000_000
+
   belongs_to :otu, inverse_of: :cached_map_items
   belongs_to :geographic_item, inverse_of: :cached_map_items
 
@@ -148,19 +152,48 @@ class CachedMapItem < ApplicationRecord
     # (pre-adapts us to a single geometry field type), however be
     # aware of this assumption
 
-    # This is a fast first pass, pure intersection
-    a = GeographicItem
-      .with(b: GeographicItem
-        .joins(:geographic_areas_geographic_items)
-        .where(geographic_areas_geographic_items: { data_origin: })
-      )
-      .from('b')
-      .select('b.*')
-      .where(
-        'ST_Intersects(b.geography, (SELECT geography FROM geographic_items ' \
-        'WHERE geographic_items.id = ?))', geographic_item_id
-      )
-      .pluck(:id)
+    target_area = GeographicItem.where(id: geographic_item_id).pick(:cached_total_area).to_f
+
+    input_geometry_intersects_sql = GeographicItem.st_intersects_sql(
+      GeographicItem.geography_as_geometry,
+      GeographicItem.select_geometry_sql(geographic_item_id)
+    )
+    input_geography_intersects_bbox_sql =
+      GeographicItem.geography_bbox_sql(geographic_item_id)
+
+    target_scope = GeographicItem
+      .joins(:geographic_areas_geographic_items)
+      .where(geographic_areas_geographic_items: { data_origin: })
+
+    # Computing geographic intersections of 'large' shapes (many vertices, but
+    # here measured by area) can be very slow to compute (minutes), so
+    # switch to geometry on those.
+    if target_area > LARGE_AREA_SQ_M
+      a = target_scope
+        .where(input_geometry_intersects_sql)
+        .pluck(:id)
+    else
+      large_targets = target_scope.where('cached_total_area > ?', LARGE_AREA_SQ_M)
+      small_targets = target_scope.where('cached_total_area <= ? OR cached_total_area IS NULL', LARGE_AREA_SQ_M)
+
+      geometry_ids = large_targets
+        .where(input_geometry_intersects_sql)
+        .pluck(:id)
+
+      geography_ids = small_targets
+        .where(input_geography_intersects_bbox_sql)
+        .where(
+          # st_dwithin is faster and more predictable on geography (per chatgpt...)
+          GeographicItem.st_dwithin_sql(
+            GeographicItem.arel_table[:geography],
+            GeographicItem.select_geography_sql(geographic_item_id),
+            0
+          )
+        )
+        .pluck(:id)
+
+      a = (geometry_ids + geography_ids).uniq
+    end
 
     return a if buffer.nil?
 

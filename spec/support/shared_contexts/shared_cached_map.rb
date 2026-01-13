@@ -39,6 +39,15 @@ shared_context 'cached map scenario' do
        RSPEC_GEO_FACTORY.point(3, 3, 0.0)])
   ) }
 
+  let(:g4_not_this_one) { RSPEC_GEO_FACTORY.polygon(
+    RSPEC_GEO_FACTORY.line_string(
+      [RSPEC_GEO_FACTORY.point(100, 0, 0.0),
+       RSPEC_GEO_FACTORY.point(100, 10, 0.0),
+       RSPEC_GEO_FACTORY.point(110, 10, 0.0),
+       RSPEC_GEO_FACTORY.point(110, 0, 0.0),
+       RSPEC_GEO_FACTORY.point(100, 0, 0.0)])
+  ) }
+
   # A point inside both areas
   # let(:point_in) { RSPEC_GEO_FACTORY.point(5, 5, 0.0) }
   # let(:point_out) { RSPEC_GEO_FACTORY.point(20, 20, 0.0) }
@@ -46,6 +55,7 @@ shared_context 'cached map scenario' do
   let(:gi1) { GeographicItem.create(geography: g1)}
   let(:gi2) { GeographicItem.create(geography: g2)}
   let(:gi3) { GeographicItem.create(geography: g3)}
+  let(:gi4_not_this_one) { GeographicItem.create(geography: g4_not_this_one)}
 
   let(:geographic_area_type) { GeographicAreaType.create!(name: 'Country') }
 
@@ -71,6 +81,14 @@ shared_context 'cached map scenario' do
     geographic_area_type:,
     parent: FactoryBot.create(:earth_geographic_area),
     geographic_areas_geographic_items_attributes: [ { geographic_item: gi3, data_origin: 'foo' } ])
+  }
+
+  let!(:ga4_not_this_one) { GeographicArea.create!(
+    name: 'not this one',
+    data_origin: 'foo',
+    geographic_area_type:,
+    parent: FactoryBot.create(:earth_geographic_area),
+    geographic_areas_geographic_items_attributes: [ { geographic_item: gi4_not_this_one, data_origin: 'ne_states' } ])
   }
 
 end

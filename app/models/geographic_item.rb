@@ -493,6 +493,10 @@ class GeographicItem < ApplicationRecord
         .where(arel_table[:id].eq(geographic_item_id))
     end
 
+    def geography_bbox_sql(geographic_item_id)
+      Arel.sql("geography && (#{select_geography_sql(geographic_item_id).to_sql})")
+    end
+
     # @param [Symbol] choice, either :latitude or :longitude
     # @return [Arel::Nodes::NamedFunction]
     #   a fragment returning either latitude or longitude columns

@@ -93,4 +93,33 @@ RSpec.describe CachedMapItem, type: :model, group: [:geo, :cached_map] do
       expect(CachedMapItem.count).to eq(1)
     end
   end
+
+  context 'translate_by_spatial_overlap area threshold' do
+    let(:large_area) { CachedMapItem::LARGE_AREA_SQ_M + 1 }
+
+    # Give gi2 an ne_states geographic area; gi1 already has one.
+    let!(:ga_ne_states_2) { GeographicArea.create!(
+      name: 'map_target2',
+      data_origin: 'ne_countries',
+      geographic_area_type:,
+      parent: FactoryBot.create(:earth_geographic_area),
+      geographic_areas_geographic_items_attributes: [ { geographic_item: gi2, data_origin: 'ne_states' } ]
+    ) }
+
+    specify 'large input item against large and small targets' do
+      gi1.update_column(:cached_total_area, large_area)
+      gi2.update_column(:cached_total_area, CachedMapItem::LARGE_AREA_SQ_M - 1)
+      gi3.update_column(:cached_total_area, large_area)
+
+      expect(CachedMapItem.translate_by_spatial_overlap(gi3.id, ['ne_states'], nil)).to contain_exactly(gi1.id, gi2.id)
+    end
+
+    specify 'small input item against large and small targets' do
+      gi1.update_column(:cached_total_area, large_area)
+      gi2.update_column(:cached_total_area, CachedMapItem::LARGE_AREA_SQ_M - 1)
+      gi3.update_column(:cached_total_area, CachedMapItem::LARGE_AREA_SQ_M - 1)
+
+      expect(CachedMapItem.translate_by_spatial_overlap(gi3.id, ['ne_states'], nil)).to contain_exactly(gi1.id, gi2.id)
+    end
+  end
 end

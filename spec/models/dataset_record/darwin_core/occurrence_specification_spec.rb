@@ -239,4 +239,245 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
       expect(row_error_messages(results.fourth, :type)).to include("Only 'PhysicalObject' or empty allowed")
     end
   end
+
+  context 'catalogNumber namespace mechanics' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_namespace, short_name: 'ABC', delimiter: 'NONE')
+
+      @import_dataset = stage_specification_file('catalog_number_namespace.tsv')
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'stages a blank catalogNumber and an explicitly-namespaced one as Ready, and a namespace-less one as NotReady' do
+      expect(@import_dataset.core_records.order(:id).pluck(:status)).to eq(%w[Ready Ready NotReady])
+    end
+
+    context 'after import' do
+      let!(:results) { @import_dataset.import(5000, 100) }
+
+      it 'only processes the two Ready rows; the NotReady row is left untouched' do
+        expect_row_tally(results, imported: 2)
+        expect(@import_dataset.core_records.order(:id).pluck(:status)).to eq(%w[Imported Imported NotReady])
+      end
+
+      it 'creates a CatalogNumber identifier only for the row with an explicit namespace' do
+        expect(Identifier::Local::CatalogNumber.count).to eq(1)
+        expect(Identifier::Local::CatalogNumber.first.namespace.short_name).to eq('ABC')
+      end
+
+      it 'computes the identifier value from the namespace short name and the catalogNumber value' do
+        expect(Identifier::Local::CatalogNumber.first.cached).to eq('ABC123')
+      end
+    end
+  end
+
+  context 'recordNumber namespace mechanics' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_namespace, short_name: 'DEF', delimiter: 'NONE')
+
+      @import_dataset = stage_specification_file('record_number_namespace.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors a recordNumber missing its companion namespace column, and imports one that has it' do
+      expect_row_tally(results, imported: 1, errored: 1)
+    end
+
+    it "names the missing companion column, not 'recordNumber' itself" do
+      expect(row_error_messages(results.first, 'TW:Namespace:recordNumber')).to include('Namespace not found')
+    end
+
+    it 'creates the RecordNumber identifier in the named namespace' do
+      expect(Identifier::Local::RecordNumber.count).to eq(1)
+      expect(Identifier::Local::RecordNumber.first.namespace.short_name).to eq('DEF')
+    end
+
+    it 'computes the identifier value from the namespace short name and the recordNumber value' do
+      expect(Identifier::Local::RecordNumber.first.cached).to eq('DEF222')
+    end
+  end
+
+  context 'recordedBy' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('recorded_by.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports both rows' do
+      expect_row_tally(results, imported: 2)
+    end
+
+    it 'creates one unvetted Person for a single name' do
+      expect(CollectingEvent.first.collectors.map { |p| [p.first_name, p.last_name] }).to eq([['Jane', 'Smith']])
+    end
+
+    it 'creates one unvetted Person per name in a pipe-delimited list' do
+      expect(CollectingEvent.second.collectors.map { |p| [p.first_name, p.last_name] })
+        .to eq([['John', 'Doe'], ['Mary', 'Jones']])
+    end
+
+    it 'stores the raw value verbatim on the collecting event regardless of how many names it parses into' do
+      expect(CollectingEvent.first.verbatim_collectors).to eq('Jane Smith')
+      expect(CollectingEvent.second.verbatim_collectors).to eq('John Doe | Mary Jones')
+    end
+
+    it 'creates every person as unvetted' do
+      expect(Person::Unvetted.count).to eq(3)
+    end
+  end
+
+  context 'individualCount' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('individual_count.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports blank, 1, and >1, and errors 0 and negative values' do
+      expect_row_tally(results, imported: 3, errored: 2)
+    end
+
+    it 'treats a blank individualCount the same as 1, creating a Specimen' do
+      expect(results.first.status).to eq('Imported')
+      expect(CollectionObject.first).to be_a(Specimen)
+    end
+
+    it 'creates a Specimen for individualCount 1' do
+      expect(CollectionObject.second).to be_a(Specimen)
+    end
+
+    it 'creates a Lot for individualCount > 1' do
+      expect(CollectionObject.third).to be_a(Lot)
+    end
+
+    it 'errors on 0 and negative values, currently via the underlying model validation' do
+      expect(row_error_messages(results.fourth, :total)).to include('Must be positive.')
+      expect(row_error_messages(results.fifth, :total)).to include('Must be positive.')
+    end
+  end
+
+  context 'sex' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('sex.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports single-word values and errors a multi-word one' do
+      expect_row_tally(results, imported: 2, errored: 1)
+    end
+
+    it 'auto-creates the Sex BiocurationGroup and a BiocurationClass for a new value' do
+      group = BiocurationGroup.find_by(uri: 'http://rs.tdwg.org/dwc/terms/sex')
+      expect(group).to_not be_nil
+      expect(group.name).to eq('Sex')
+      expect(BiocurationClass.where(name: 'male').count).to eq(1)
+    end
+
+    it 'reuses the same BiocurationClass for a repeated value rather than duplicating it' do
+      expect(CollectionObject.first.biocuration_classes).to eq(CollectionObject.second.biocuration_classes)
+    end
+
+    it 'errors a multi-word value' do
+      expect(row_error_messages(results.third, :sex))
+        .to include('Only single-word controlled vocabulary supported at this time.')
+    end
+  end
+
+  context 'preparations' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_preparation_type, name: 'pinned')
+
+      @import_dataset = stage_specification_file('preparations.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports a matching preparation name and errors an unrecognized one' do
+      expect_row_tally(results, imported: 1, errored: 1)
+    end
+
+    it 'assigns the matching PreparationType' do
+      expect(CollectionObject.first.preparation_type.name).to eq('pinned')
+    end
+
+    it 'names the unrecognized value and does not create a new PreparationType for it' do
+      expect(row_error_messages(results.second, :preparations))
+        .to include('Unknown preparation "spread". If it is correct please add it to preparation types and retry.')
+      expect(PreparationType.count).to eq(1)
+    end
+  end
+
+  context 'occurrenceID reused across separate imports' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_a = stage_specification_file('occurrence_id_reuse_a.tsv')
+      @results_a = @import_a.import(5000, 100)
+
+      @import_b = stage_specification_file('occurrence_id_reuse_b.tsv')
+      @results_b = @import_b.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports both, unlike a duplicate occurrenceID within a single import' do
+      expect_row_tally(@results_a, imported: 1)
+      expect_row_tally(@results_b, imported: 1)
+    end
+
+    it 'assigns each import its own occurrenceID namespace' do
+      namespace_a = @import_a.get_core_record_identifier_namespace
+      namespace_b = @import_b.get_core_record_identifier_namespace
+      expect(namespace_a).to_not eq(namespace_b)
+    end
+  end
 end

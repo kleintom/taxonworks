@@ -1065,5 +1065,85 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
         expect(CollectionObject.second.taxon_names).to include(@species_b)
       end
     end
+
+    context 'scientificNameAuthorship with a typo matches no existing candidate' do
+      def build_ambiguous_project
+        root = FactoryBot.create(:root_taxon_name)
+        genus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+        subgenus_a = Protonym.create!(parent: genus, name: 'Tanaemyrmex', rank_class: Ranks.lookup(:iczn, :subgenus))
+        subgenus_b = Protonym.create!(parent: genus, name: 'Myrmentoma', rank_class: Ranks.lookup(:iczn, :subgenus))
+        @species_a = Protonym.create!(parent: subgenus_a, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                                      verbatim_author: 'Mayr', year_of_publication: 1862)
+        @species_b = Protonym.create!(parent: subgenus_b, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                                      verbatim_author: 'Emery', year_of_publication: 1893)
+      end
+
+      context 'setting off (default)' do
+        before :all do
+          DatabaseCleaner.start
+
+          init_housekeeping
+          build_ambiguous_project
+          @taxon_name_count_before_import = TaxonName.count
+
+          @import_dataset = stage_specification_file('scientific_name_author_typo.tsv')
+          @results = @import_dataset.import(5000, 100)
+        end
+
+        after(:all) { DatabaseCleaner.clean }
+
+        let(:results) { @results }
+
+        it 'imports the row' do
+          expect_row_tally(results, imported: 1)
+        end
+
+        # `Emory` is a single-letter typo of the existing `Emery, 1893` species' author. Matching is
+        # exact, not fuzzy: a typo is indistinguishable from a genuinely different author, so this
+        # creates a new, unwanted homonym species rather than either matching or erroring.
+        it 'creates a new species TaxonName rather than matching or erroring, since the typo does not exactly match either candidate' do
+          expect(TaxonName.count).to eq(@taxon_name_count_before_import + 1)
+        end
+
+        it 'places the new species directly under the genus, not under either existing subgenus' do
+          created = Protonym.where(name: 'americanus').where.not(id: [@species_a.id, @species_b.id]).first
+          expect(created.parent.name).to eq('Camponotus')
+          expect(created.verbatim_author).to eq('Emory')
+        end
+      end
+
+      context 'setting on (restrict_to_existing_nomenclature)' do
+        before :all do
+          DatabaseCleaner.start
+
+          init_housekeeping
+          build_ambiguous_project
+          @taxon_name_count_before_import = TaxonName.count
+
+          @import_dataset = stage_specification_file(
+            'scientific_name_author_typo.tsv',
+            import_settings: { 'restrict_to_existing_nomenclature' => true }
+          )
+          @results = @import_dataset.import(5000, 100)
+        end
+
+        after(:all) { DatabaseCleaner.clean }
+
+        let(:results) { @results }
+
+        it 'errors the row instead of creating a new species TaxonName' do
+          expect_row_tally(results, errored: 1)
+        end
+
+        it 'creates no new TaxonNames' do
+          expect(TaxonName.count).to eq(@taxon_name_count_before_import)
+        end
+
+        it 'names the unmatched species and states that new-name creation is disabled' do
+          expect(row_error_messages(results.first, :scientificName))
+            .to include('Protonym americanus not found with that name and/or classification. Importing new names is disabled by import settings.')
+        end
+      end
+    end
   end
 end

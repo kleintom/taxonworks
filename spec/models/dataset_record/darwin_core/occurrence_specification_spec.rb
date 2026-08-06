@@ -488,6 +488,102 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
     end
   end
 
+  context 'catalogNumber namespace resolution via institutionCode/collectionCode' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      @namespace_for_pairing = FactoryBot.create(:valid_namespace, short_name: 'INHS', delimiter: 'NONE')
+      @namespace_for_collection_code_alone = FactoryBot.create(:valid_namespace, short_name: 'GENERIC', delimiter: 'NONE')
+      Repository.create!(name: 'Illinois Natural History Survey', acronym: 'INHS')
+
+      @import_dataset = stage_specification_file('catalog_number_namespace_by_institution_collection_code.tsv')
+      # Simulates a curator configuring the mapping table via the import task's Settings panel.
+      @import_dataset.update_catalog_number_collection_code_namespace('ENT', @namespace_for_collection_code_alone.id)
+      @import_dataset.update_catalog_number_namespace('INHS', 'ENT', @namespace_for_pairing.id)
+      # institutionCode alone (no collectionCode at all) is its own distinct mapping key, not a third
+      # fallback tier — it does not reuse the collectionCode-only mapping above.
+      @import_dataset.update_catalog_number_namespace('INHS', nil, @namespace_for_pairing.id)
+
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports all three rows' do
+      expect_row_tally(results, imported: 3)
+    end
+
+    it 'prefers the institutionCode:collectionCode mapping over the collectionCode-only mapping' do
+      expect(Identifier::Local::CatalogNumber.first.cached).to eq('INHS100')
+    end
+
+    it 'falls back to the collectionCode-only mapping when institutionCode is blank' do
+      expect(Identifier::Local::CatalogNumber.second.cached).to eq('GENERIC200')
+    end
+
+    it 'resolves institutionCode alone (no collectionCode at all) via its own mapping' do
+      expect(Identifier::Local::CatalogNumber.third.cached).to eq('INHS300')
+    end
+  end
+
+  context 'catalogNumber must match its computed identifier verbatim' do
+    context 'setting off (default)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'ABC', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file(
+          'catalog_number_verbatim_match.tsv',
+          import_settings: { 'require_catalog_number_match_verbatim' => false }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports a catalogNumber given with or without its namespace prefix alike' do
+        expect_row_tally(@results, imported: 2)
+        expect(Identifier::Local::CatalogNumber.pluck(:cached)).to eq(%w[ABC100 ABC200])
+      end
+    end
+
+    context 'setting on' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'ABC', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file(
+          'catalog_number_verbatim_match.tsv',
+          import_settings: { 'require_catalog_number_match_verbatim' => true }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'errors a catalogNumber given without its namespace prefix, and imports one given with it' do
+        expect_row_tally(results, imported: 1, errored: 1)
+      end
+
+      it 'names the mismatch between the computed and verbatim values' do
+        expect(row_error_messages(results.first, :catalogNumber))
+          .to include('Computed catalog number ABC100 will not match verbatim 100. Verify the mapped namespace and namespace delimiter are correct.')
+      end
+    end
+  end
+
   context 'duplicate catalogNumber' do
     context 'within the same import' do
       before :all do
@@ -659,6 +755,35 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
       # separate, real records, just not separately numbered).
       it 'imports both rows and containerizes them, with no recordNumber to tell them apart' do
         expect_row_tally(@results, imported: 2)
+        expect(Container.count).to eq(1)
+        expect(Container.first.container_items.count).to eq(2)
+        expect(Identifier::Local::RecordNumber.count).to eq(0)
+      end
+    end
+
+    context 'containerize_dup_cat_no enabled, without a recordNumber, across separate imports' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'CAT', delimiter: 'NONE')
+
+        @results_a = stage_specification_file(
+          'container_no_record_number_setting_enabled_across_imports_a.tsv',
+          import_settings: { 'containerize_dup_cat_no' => true }
+        ).import(5000, 100)
+        @results_b = stage_specification_file(
+          'container_no_record_number_setting_enabled_across_imports_b.tsv',
+          import_settings: { 'containerize_dup_cat_no' => true }
+        ).import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'behaves exactly like the same-import case: both import and containerize together' do
+        expect_row_tally(@results_a, imported: 1)
+        expect_row_tally(@results_b, imported: 1)
         expect(Container.count).to eq(1)
         expect(Container.first.container_items.count).to eq(2)
         expect(Identifier::Local::RecordNumber.count).to eq(0)

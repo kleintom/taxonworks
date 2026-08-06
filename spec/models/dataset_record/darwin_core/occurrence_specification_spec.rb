@@ -380,7 +380,7 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
       expect(CollectionObject.third).to be_a(Lot)
     end
 
-    it 'errors on 0 and negative values, currently via the underlying model validation' do
+    it 'errors on 0 and negative values' do
       expect(row_error_messages(results.fourth, :total)).to include('Must be positive.')
       expect(row_error_messages(results.fifth, :total)).to include('Must be positive.')
     end
@@ -459,6 +459,8 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
 
       init_housekeeping
       FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_namespace, short_name: 'CATD', delimiter: 'NONE')
+      FactoryBot.create(:valid_namespace, short_name: 'RECD', delimiter: 'NONE')
 
       @import_a = stage_specification_file('occurrence_id_reuse_a.tsv')
       @results_a = @import_a.import(5000, 100)
@@ -478,6 +480,262 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
       namespace_a = @import_a.get_core_record_identifier_namespace
       namespace_b = @import_b.get_core_record_identifier_namespace
       expect(namespace_a).to_not eq(namespace_b)
+    end
+
+    it 'does not confuse the two imports\' catalogNumber or recordNumber values either, since they differ' do
+      expect(Identifier::Local::CatalogNumber.pluck(:cached)).to contain_exactly('CATD700', 'CATD800')
+      expect(Identifier::Local::RecordNumber.pluck(:cached)).to contain_exactly('RECDRA', 'RECDRB')
+    end
+  end
+
+  context 'duplicate catalogNumber' do
+    context 'within the same import' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'CAT', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file('duplicate_catalog_number_same_import.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the first row and errors the second' do
+        expect_row_tally(@results, imported: 1, errored: 1)
+      end
+
+      it "reports 'Is already in use'" do
+        expect(row_error_messages(@results.second, :catalogNumber)).to include('Is already in use')
+      end
+    end
+
+    context 'across separate imports' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'CAT', delimiter: 'NONE')
+
+        @results_a = stage_specification_file('duplicate_catalog_number_import_a.tsv').import(5000, 100)
+        @results_b = stage_specification_file('duplicate_catalog_number_import_b.tsv').import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'behaves exactly like the same-import case: first import succeeds, second errors' do
+        expect_row_tally(@results_a, imported: 1)
+        expect_row_tally(@results_b, errored: 1)
+        expect(row_error_messages(@results_b.first, :catalogNumber)).to include('Is already in use')
+      end
+    end
+  end
+
+  context 'duplicate recordNumber' do
+    context 'within the same import' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'REC', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file('duplicate_record_number_same_import.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports both rows: a recordNumber is not required to be unique on its own, unlike catalogNumber or occurrenceID' do
+        expect_row_tally(@results, imported: 2)
+      end
+
+      it 'creates two RecordNumber identifiers carrying the identical value' do
+        expect(Identifier::Local::RecordNumber.pluck(:identifier)).to eq(%w[300 300])
+      end
+    end
+
+    context 'across separate imports' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'REC', delimiter: 'NONE')
+
+        @results_a = stage_specification_file('duplicate_record_number_import_a.tsv').import(5000, 100)
+        @results_b = stage_specification_file('duplicate_record_number_import_b.tsv').import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports both, same as the same-import case' do
+        expect_row_tally(@results_a, imported: 1)
+        expect_row_tally(@results_b, imported: 1)
+      end
+    end
+  end
+
+  context 'containers' do
+    context 'same catalogNumber, different recordNumbers' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'CAT', delimiter: 'NONE')
+        FactoryBot.create(:valid_namespace, short_name: 'REC', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file('container_different_record_numbers.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports both rows' do
+        expect_row_tally(@results, imported: 2)
+      end
+
+      it 'shares one CatalogNumber identifier and creates two distinct RecordNumber identifiers' do
+        expect(Identifier::Local::CatalogNumber.count).to eq(1)
+        expect(Identifier::Local::RecordNumber.pluck(:identifier)).to contain_exactly('R1', 'R2')
+      end
+
+      it 'containerizes both collection objects together' do
+        expect(Container.count).to eq(1)
+        expect(Container.first.container_items.count).to eq(2)
+      end
+    end
+
+    context 'same catalogNumber, same recordNumber' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'CAT', delimiter: 'NONE')
+        FactoryBot.create(:valid_namespace, short_name: 'REC', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file('container_duplicate_record_number.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      # recordNumber is allowed to repeat everywhere (see the 'duplicate recordNumber' context
+      # above), with no carve-out for items that also share a catalogNumber. Two specimens from the
+      # same collecting event (same recordNumber/field number) placed in the same physical lot (same
+      # catalogNumber) is a normal scenario, not necessarily a data-entry error.
+      it 'imports both rows into the same container, even though their recordNumber values are identical' do
+        expect_row_tally(@results, imported: 2)
+        expect(Container.count).to eq(1)
+        expect(Identifier::Local::RecordNumber.pluck(:identifier)).to eq(%w[R1 R1])
+      end
+    end
+
+    context 'containerize_dup_cat_no enabled, without a recordNumber' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'CAT', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file(
+          'container_no_record_number_setting_enabled.tsv',
+          import_settings: { 'containerize_dup_cat_no' => true }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      # This setting's entire purpose is to allow containerizing a colliding catalogNumber without a
+      # recordNumber present — the trade-off the user opts into by enabling it is that the items
+      # placed in the container aren't individually identifiable by identifier afterward (they remain
+      # separate, real records, just not separately numbered).
+      it 'imports both rows and containerizes them, with no recordNumber to tell them apart' do
+        expect_row_tally(@results, imported: 2)
+        expect(Container.count).to eq(1)
+        expect(Container.first.container_items.count).to eq(2)
+        expect(Identifier::Local::RecordNumber.count).to eq(0)
+      end
+    end
+
+    context 'spanning separate imports (with recordNumbers)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'CAT', delimiter: 'NONE')
+        FactoryBot.create(:valid_namespace, short_name: 'REC', delimiter: 'NONE')
+
+        @results_a = stage_specification_file('container_spans_imports_a.tsv').import(5000, 100)
+        @results_b = stage_specification_file('container_spans_imports_b.tsv').import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports both, one row per import' do
+        expect_row_tally(@results_a, imported: 1)
+        expect_row_tally(@results_b, imported: 1)
+      end
+
+      it 'containerizes both collection objects together, even though they came from separate imports' do
+        expect(Container.count).to eq(1)
+        expect(Container.first.container_items.count).to eq(2)
+      end
+    end
+
+    context 'same catalogNumber, no recordNumber, across separate imports' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'CAT', delimiter: 'NONE')
+
+        @results_a = stage_specification_file('container_no_record_number_across_imports_a.tsv').import(5000, 100)
+        @results_b = stage_specification_file('container_no_record_number_across_imports_b.tsv').import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the first, and safely errors the second rather than silently containerizing it' do
+        expect_row_tally(@results_a, imported: 1)
+        expect_row_tally(@results_b, errored: 1)
+        expect(row_error_messages(@results_b.first, :catalogNumber)).to include('Is already in use')
+      end
+
+      it 'does not create a container' do
+        expect(Container.count).to eq(0)
+      end
+    end
+
+    context 'recordNumber reused across unrelated catalogNumbers' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'CAT', delimiter: 'NONE')
+        FactoryBot.create(:valid_namespace, short_name: 'REC', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file('record_number_reused_across_catalog_numbers.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports both rows without containerizing them' do
+        expect_row_tally(@results, imported: 2)
+        expect(Container.count).to eq(0)
+        expect(Identifier::Local::CatalogNumber.count).to eq(2)
+      end
     end
   end
 end

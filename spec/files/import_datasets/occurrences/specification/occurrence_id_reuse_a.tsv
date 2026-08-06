@@ -1,2 +1,2 @@
-occurrenceID	basisOfRecord	scientificName
-spec-shared	PreservedSpecimen	Orotettix andeanus
+occurrenceID	basisOfRecord	scientificName	catalogNumber	TW:Namespace:catalogNumber	recordNumber	TW:Namespace:recordNumber
+spec-shared	PreservedSpecimen	Orotettix andeanus	700	CATD	RA	RECD

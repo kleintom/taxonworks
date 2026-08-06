@@ -1,2 +1,3 @@
 occurrenceID	basisOfRecord	scientificName	catalogNumber	TW:Namespace:catalogNumber	recordNumber	TW:Namespace:recordNumber
-spec-shared	PreservedSpecimen	Sphenarium purpurascens	800	CATD	RB	RECD
+occ-a	PreservedSpecimen	Orotettix andeanus	500	CAT	R1	REC
+occ-b	PreservedSpecimen	Sphenarium purpurascens	500	CAT	R2	REC

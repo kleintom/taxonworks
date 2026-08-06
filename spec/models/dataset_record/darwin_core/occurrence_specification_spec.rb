@@ -863,4 +863,207 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
       end
     end
   end
+
+  context 'name matching' do
+    context 'same scientificName imported twice, within the same import' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        @taxon_name_count_before_import = TaxonName.count
+
+        @import_dataset = stage_specification_file('scientific_name_matched_same_import.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'imports both rows' do
+        expect_row_tally(results, imported: 2)
+      end
+
+      it 'creates the genus and species TaxonNames once, not twice' do
+        expect(TaxonName.count).to eq(@taxon_name_count_before_import + 2)
+      end
+
+      it 'matches the second row to the same species TaxonName the first row created' do
+        species = TaxonName.find_by(name: 'andeanus')
+        expect(CollectionObject.first.taxon_names).to include(species)
+        expect(CollectionObject.second.taxon_names).to include(species)
+      end
+    end
+
+    context 'same scientificName imported twice, across separate imports' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        @taxon_name_count_before_import = TaxonName.count
+
+        @results_a = stage_specification_file('scientific_name_matched_import_a.tsv').import(5000, 100)
+        @results_b = stage_specification_file('scientific_name_matched_import_b.tsv').import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports both, one row per import' do
+        expect_row_tally(@results_a, imported: 1)
+        expect_row_tally(@results_b, imported: 1)
+      end
+
+      it 'creates the genus and species TaxonNames once, not twice, same as the same-import case' do
+        expect(TaxonName.count).to eq(@taxon_name_count_before_import + 2)
+      end
+
+      it 'matches the second import to the same species TaxonName the first import created' do
+        species = TaxonName.find_by(name: 'andeanus')
+        expect(CollectionObject.first.taxon_names).to include(species)
+        expect(CollectionObject.second.taxon_names).to include(species)
+      end
+    end
+
+    context 'scientificName already exists in the project' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        root = FactoryBot.create(:root_taxon_name)
+        genus = Protonym.create!(parent: root, name: 'Orotettix', rank_class: Ranks.lookup(:iczn, :genus))
+        @species = Protonym.create!(parent: genus, name: 'andeanus', rank_class: Ranks.lookup(:iczn, :species))
+        @taxon_name_count_before_import = TaxonName.count
+
+        @import_dataset = stage_specification_file('minimum_required_fields.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'imports the row' do
+        expect_row_tally(results, imported: 1)
+      end
+
+      it 'creates no new TaxonNames, matching the pre-existing genus and species instead' do
+        expect(TaxonName.count).to eq(@taxon_name_count_before_import)
+      end
+
+      it "matches the row's determination to the pre-existing species, not a newly-created one" do
+        expect(CollectionObject.first.taxon_names).to include(@species)
+      end
+    end
+
+    context 'scientificName omits a subgenus present in the project' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        root = FactoryBot.create(:root_taxon_name)
+        genus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+        subgenus = Protonym.create!(parent: genus, name: 'Tanaemyrmex', rank_class: Ranks.lookup(:iczn, :subgenus))
+        @species = Protonym.create!(parent: subgenus, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species))
+        @taxon_name_count_before_import = TaxonName.count
+
+        @import_dataset = stage_specification_file('scientific_name_missing_subgenus.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'imports the row' do
+        expect_row_tally(results, imported: 1)
+      end
+
+      it 'creates no new TaxonNames, matching through to the species nested under the subgenus' do
+        expect(TaxonName.count).to eq(@taxon_name_count_before_import)
+      end
+
+      it "matches the row's determination to the existing species despite the omitted subgenus" do
+        expect(CollectionObject.first.taxon_names).to include(@species)
+      end
+    end
+
+    context 'ambiguous subgenus homonym, no disambiguating information' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        root = FactoryBot.create(:root_taxon_name)
+        genus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+        subgenus_a = Protonym.create!(parent: genus, name: 'Tanaemyrmex', rank_class: Ranks.lookup(:iczn, :subgenus))
+        subgenus_b = Protonym.create!(parent: genus, name: 'Myrmentoma', rank_class: Ranks.lookup(:iczn, :subgenus))
+        @species_a = Protonym.create!(parent: subgenus_a, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                                      verbatim_author: 'Mayr', year_of_publication: 1862)
+        @species_b = Protonym.create!(parent: subgenus_b, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                                      verbatim_author: 'Emery', year_of_publication: 1893)
+        @genus = genus
+        @taxon_name_count_before_import = TaxonName.count
+
+        @import_dataset = stage_specification_file('scientific_name_ambiguous_subgenus_homonym.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      # `get_protonym` (app/models/dataset_record/darwin_core/occurrence.rb) has two separate
+      # ambiguity checks: a direct-parent query that correctly raises a detailed "Multiple matches
+      # found" error, and a separate wildcard/ancestor query (used when the match is only reachable
+      # through an intermediate rank, e.g. a subgenus) that instead just returns the parent with no
+      # error at all when it also finds more than one candidate. This scenario hits the second path.
+      # TaxonWorks does not currently raise an error here (tracked in error_message_todos.md) — this
+      # spec records the expected behavior (matching the direct-parent case's real behavior), not the
+      # current one.
+      xit 'errors the row, naming the ambiguous candidates, instead of silently matching the genus' do
+        expect_row_tally(results, errored: 1)
+      end
+    end
+
+    context 'ambiguous subgenus homonym, disambiguated by scientificNameAuthorship' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        root = FactoryBot.create(:root_taxon_name)
+        genus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+        subgenus_a = Protonym.create!(parent: genus, name: 'Tanaemyrmex', rank_class: Ranks.lookup(:iczn, :subgenus))
+        subgenus_b = Protonym.create!(parent: genus, name: 'Myrmentoma', rank_class: Ranks.lookup(:iczn, :subgenus))
+        @species_a = Protonym.create!(parent: subgenus_a, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                                      verbatim_author: 'Mayr', year_of_publication: 1862)
+        @species_b = Protonym.create!(parent: subgenus_b, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                                      verbatim_author: 'Emery', year_of_publication: 1893)
+        @taxon_name_count_before_import = TaxonName.count
+
+        @import_dataset = stage_specification_file('scientific_name_disambiguated_by_author_year.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'imports both rows' do
+        expect_row_tally(results, imported: 2)
+      end
+
+      it 'creates no new TaxonNames' do
+        expect(TaxonName.count).to eq(@taxon_name_count_before_import)
+      end
+
+      it 'matches row 1 (author and year) to the Mayr, 1862 species' do
+        expect(CollectionObject.first.taxon_names).to include(@species_a)
+      end
+
+      it 'matches row 2 (author alone, no year) to the Emery species' do
+        expect(CollectionObject.second.taxon_names).to include(@species_b)
+      end
+    end
+  end
 end

@@ -1781,6 +1781,89 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
     end
   end
 
+  context 'eventRemarks, verbatimLocality, and elevation terms' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('location_and_event_pass_through_terms.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'stores eventRemarks as a note on the CollectingEvent' do
+      expect(CollectingEvent.first.notes.map(&:text)).to eq(['trail was muddy'])
+    end
+
+    it 'stores verbatimLocality, minimumElevationInMeters, maximumElevationInMeters, and verbatimElevation verbatim' do
+      ce = CollectingEvent.first
+      expect(ce.verbatim_locality).to eq('2 km N of Springfield')
+      expect(ce.minimum_elevation).to eq(100)
+      expect(ce.maximum_elevation).to eq(150)
+      expect(ce.verbatim_elevation).to eq('100-150m')
+    end
+  end
+
+  context 'georeferencedBy' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('georeferenced_by.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'attaches georeferencedBy as a data attribute on the Georeference, using a predicate matching the DwC term URI' do
+      gr = Georeference::VerbatimData.first
+      predicate, value = gr.data_attributes.first.then { |da| [da.predicate, da.value] }
+      expect(predicate.name).to eq('georeferencedBy')
+      expect(predicate.uri).to eq('http://rs.tdwg.org/dwc/terms/georeferencedBy')
+      expect(value).to eq('Jane Smith')
+    end
+  end
+
+  context 'georeferencedBy without decimalLatitude/decimalLongitude' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('georeferenced_by_without_coordinates.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'has no effect: no Georeference exists to attach the value to, since latitude/longitude are required for one to be created' do
+      expect(Georeference::VerbatimData.count).to eq(0)
+      expect(DataAttribute.count).to eq(0)
+    end
+
+    it 'still creates the georeferencedBy Predicate, even though nothing ends up using it' do
+      expect(Predicate.where(name: 'georeferencedBy').count).to eq(1)
+    end
+  end
+
   context 'decimalLatitude without decimalLongitude' do
     before :all do
       DatabaseCleaner.start
@@ -2247,6 +2330,35 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
     it 'names the reason' do
       expect(row_error_messages(results.first, :dateIdentified))
         .to include('Date range for taxon determination is not supported.')
+    end
+  end
+
+  context 'identificationQualifier' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('identification_qualifier.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'creates a second, separate OTU carrying the qualifier as its own name, for the same TaxonName' do
+      species = TaxonName.find_by(name: 'americanus')
+      expect(species.otus.count).to eq(2)
+      expect(species.otus.pluck(:name)).to contain_exactly(nil, 'cf.')
+    end
+
+    it "determines the row to the qualified OTU ('cf.'), not the plain species OTU" do
+      qualified_otu = Otu.find_by(taxon_name: TaxonName.find_by(name: 'americanus'), name: 'cf.')
+      expect(TaxonDetermination.first.otu).to eq(qualified_otu)
     end
   end
 

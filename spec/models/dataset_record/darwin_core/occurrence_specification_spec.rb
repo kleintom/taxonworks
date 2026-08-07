@@ -2122,6 +2122,70 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
     end
   end
 
+  context 'habitat, samplingProtocol, fieldNotes, identifiedBy, dateIdentified, and identificationRemarks' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('identification_and_event_pass_through_terms.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'stores habitat, samplingProtocol, and fieldNotes verbatim on the CollectingEvent' do
+      ce = CollectingEvent.first
+      expect(ce.verbatim_habitat).to eq('rainforest canopy')
+      expect(ce.verbatim_method).to eq('hand collecting')
+      expect(ce.field_notes).to eq('saw many nests')
+    end
+
+    it 'matches identifiedBy to a person and assigns them as a determiner of the TaxonDetermination' do
+      td = TaxonDetermination.first
+      expect(td.determiners.map { |p| [p.first_name, p.last_name] }).to eq([['Jane', 'Smith']])
+    end
+
+    it 'parses dateIdentified into the TaxonDetermination made-date fields' do
+      td = TaxonDetermination.first
+      expect([td.year_made, td.month_made, td.day_made]).to eq([1999, 7, 4])
+    end
+
+    it 'stores identificationRemarks as a note on the TaxonDetermination' do
+      expect(TaxonDetermination.first.notes.map(&:text)).to eq(['looks typical'])
+    end
+  end
+
+  context 'dateIdentified as a range' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('date_identified_range.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row, unlike eventDate, which does support a range' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'names the reason' do
+      expect(row_error_messages(results.first, :dateIdentified))
+        .to include('Date range for taxon determination is not supported.')
+    end
+  end
+
   context 'typeStatus "of X" matches an original combination directly' do
     before :all do
       DatabaseCleaner.start
@@ -2285,6 +2349,171 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
     it 'currently errors instead, with a message that does not mention TypeMaterial, protonym rank, or typeStatus at all' do
       expect_row_tally(results, errored: 1)
       expect(row_error_messages(results.first, :identifier_object)).to include('is invalid')
+    end
+  end
+
+  context 'kingdom, phylum, class, order, and family columns' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      @taxon_name_count_before_import = TaxonName.count
+
+      @import_dataset = stage_specification_file('taxon_rank_columns.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'creates a protonym at each rank given, plus the genus and species extracted from scientificName' do
+      expect(TaxonName.count).to eq(@taxon_name_count_before_import + 7)
+      names = %w[Animalia Arthropoda Insecta Hymenoptera Formicidae Camponotus americanus]
+      expect(TaxonName.where(name: names).count).to eq(7)
+    end
+
+    it 'nests them in rank order: kingdom > phylum > class > order > family > genus > species' do
+      species = TaxonName.find_by(name: 'americanus')
+      lineage = []
+      node = species
+      while node
+        lineage << node.name
+        node = node.parent
+      end
+      expect(lineage).to eq(%w[americanus Camponotus Formicidae Hymenoptera Insecta Arthropoda Animalia Root])
+    end
+  end
+
+  context 'higherClassification' do
+    context 'when the higher ranks it names already exist' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        root = FactoryBot.create(:root_taxon_name)
+        @kingdom = Protonym.create!(parent: root, name: 'Animalia', rank_class: Ranks.lookup(:iczn, :kingdom))
+        phylum = Protonym.create!(parent: @kingdom, name: 'Arthropoda', rank_class: Ranks.lookup(:iczn, :phylum))
+        klass = Protonym.create!(parent: phylum, name: 'Insecta', rank_class: Ranks.lookup(:iczn, :class))
+        @order = Protonym.create!(parent: klass, name: 'Hymenoptera', rank_class: Ranks.lookup(:iczn, :order))
+        @taxon_name_count_before_import = TaxonName.count
+
+        @import_dataset = stage_specification_file('higher_classification.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row' do
+        expect_row_tally(@results, imported: 1)
+      end
+
+      it 'creates only the family-group name; the higher ranks are matched, not recreated' do
+        expect(TaxonName.count).to eq(@taxon_name_count_before_import + 3)
+        family = TaxonName.find_by(name: 'Formicidae')
+        expect(family.parent).to eq(@order)
+        expect(TaxonName.where(parent: @kingdom).count).to eq(1)
+      end
+    end
+
+    context "when a higher rank it names doesn't already exist" do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+
+        @import_dataset = stage_specification_file('higher_classification.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'errors the row: higherClassification only creates family-group names, never ranks above family' do
+        expect_row_tally(results, errored: 1)
+      end
+
+      it 'names the problem' do
+        expect(row_error_messages(results.first, :higherClassification))
+          .to include('Rank for Animalia could not be determined. Please create this taxon name manually and retry.')
+      end
+    end
+  end
+
+  context 'taxonRank overrides the rank of a single-word (uninomial) scientificName' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('taxon_rank_overrides_uninomial.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'creates the name at the rank taxonRank specifies, rather than assuming genus rank' do
+      tribe = TaxonName.find_by(name: 'Camponotini')
+      expect(tribe.rank_class.rank_name).to eq('tribe')
+    end
+  end
+
+  context 'invalid taxonRank' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('taxon_rank_invalid.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'names the unrecognized rank' do
+      expect(row_error_messages(results.first, :taxonRank)).to include('Unknown ICZN rank nonsenserank')
+    end
+  end
+
+  context 'genus and specificEpithet columns are ignored in favor of scientificName' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('genus_specific_epithet_ignored.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'creates the genus and species named in scientificName, ignoring the genus/specificEpithet column values entirely' do
+      expect(TaxonName.exists?(name: 'Camponotus')).to be true
+      expect(TaxonName.exists?(name: 'americanus')).to be true
+      expect(TaxonName.exists?(name: 'WrongGenus')).to be false
+      expect(TaxonName.exists?(name: 'wrongepithet')).to be false
     end
   end
 end

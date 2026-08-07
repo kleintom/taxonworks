@@ -2016,4 +2016,275 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
       expect(CollectionObject.first.collecting_event_id).not_to eq(CollectionObject.second.collecting_event_id)
     end
   end
+
+  context 'typeStatus: minimum, matching the current name' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      genus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+      @species = Protonym.create!(parent: genus, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species))
+
+      @import_dataset = stage_specification_file('type_status_minimum.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'creates a TypeMaterial for the matched species, since a single-word typeStatus is taken to mean the specimen itself' do
+      expect(TypeMaterial.count).to eq(1)
+      expect(TypeMaterial.first.type_type).to eq('holotype')
+      expect(TypeMaterial.first.protonym).to eq(@species)
+    end
+  end
+
+  context 'typeStatus illegal for the nomenclatural code' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      genus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+      Protonym.create!(parent: genus, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species))
+
+      @import_dataset = stage_specification_file('type_status_illegal_for_code.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it "names the problem: isotype is not a legal type under this row's (default) nomenclatural code" do
+      expect(row_error_messages(results.first, :typeStatus)).to include('could not extract legal type from typeStatus')
+    end
+
+    it 'creates no TypeMaterial' do
+      expect(TypeMaterial.count).to eq(0)
+    end
+  end
+
+  context 'unparseable typeStatus' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      genus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+      Protonym.create!(parent: genus, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species))
+
+      @import_dataset = stage_specification_file('type_status_unparseable.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it "names the problem, since the value doesn't fit either the bare-word or the 'word of name' shape" do
+      expect(row_error_messages(results.first, :typeStatus)).to include('Unprocessable typeStatus information')
+    end
+  end
+
+  context 'typeStatus is ignored when TW:TaxonDetermination:otu_id is used' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      Otu.create!(id: 900001, taxon_name: FactoryBot.create(:iczn_species))
+
+      @import_dataset = stage_specification_file('type_status_ignored_with_otu_id.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'creates no TypeMaterial, even though typeStatus is present' do
+      expect(TypeMaterial.count).to eq(0)
+    end
+  end
+
+  context 'typeStatus "of X" matches an original combination directly' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      g_camponotus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+      g_formica = Protonym.create!(parent: root, name: 'Formica', rank_class: Ranks.lookup(:iczn, :genus))
+
+      @s_americanus = Protonym.create!(parent: g_camponotus, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                                       verbatim_author: 'Mayr', year_of_publication: 1862)
+      @s_americanus.original_genus = g_formica
+      @s_americanus.original_species = @s_americanus
+      @s_americanus.save!
+
+      @import_dataset = stage_specification_file('type_status_original_combination.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it "matches the protonym whose original combination is exactly 'Formica americanus'" do
+      expect(TypeMaterial.count).to eq(1)
+      expect(TypeMaterial.first.protonym).to eq(@s_americanus)
+    end
+  end
+
+  context 'typeStatus "of X" matches via a synonym' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      g_camponotus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+      g_formica = Protonym.create!(parent: root, name: 'Formica', rank_class: Ranks.lookup(:iczn, :genus))
+
+      @s_americanus = Protonym.create!(parent: g_camponotus, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                                       verbatim_author: 'Mayr', year_of_publication: 1862, also_create_otu: true)
+
+      @s_nigra = Protonym.create!(parent: g_formica, name: 'nigra', rank_class: Ranks.lookup(:iczn, :species),
+                                  verbatim_author: 'Smith', year_of_publication: 1858, also_create_otu: true)
+      @s_nigra.original_genus = g_formica
+      @s_nigra.original_species = @s_nigra
+      @s_nigra.save!
+
+      TaxonNameRelationship::Iczn::Invalidating::Usage::Synonym.create!(subject_taxon_name: @s_nigra, object_taxon_name: @s_americanus)
+
+      @import_dataset = stage_specification_file('type_status_synonym.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it "matches the synonym 'Formica nigra', not the current name 'Camponotus americanus' the row was determined to" do
+      expect(TypeMaterial.count).to eq(1)
+      expect(TypeMaterial.first.protonym).to eq(@s_nigra)
+    end
+  end
+
+  context 'typeStatus "of X" wildcard subgenus match' do
+    context 'unambiguous (one candidate)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        root = FactoryBot.create(:root_taxon_name)
+        genus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+        subgenus = Protonym.create!(parent: genus, name: 'Tanaemyrmex', rank_class: Ranks.lookup(:iczn, :subgenus))
+        @species = Protonym.create!(parent: subgenus, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                                    verbatim_author: 'Mayr', year_of_publication: 1862)
+
+        @import_dataset = stage_specification_file('type_status_wildcard_subgenus_unambiguous.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row' do
+        expect_row_tally(@results, imported: 1)
+      end
+
+      it "matches 'Camponotus americanus' to the subgenus-nested species, despite the typeStatus name omitting the subgenus" do
+        expect(TypeMaterial.count).to eq(1)
+        expect(TypeMaterial.first.protonym).to eq(@species)
+      end
+    end
+
+    context 'ambiguous (two homonym candidates)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        root = FactoryBot.create(:root_taxon_name)
+        genus = Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+        subgenus_a = Protonym.create!(parent: genus, name: 'Tanaemyrmex', rank_class: Ranks.lookup(:iczn, :subgenus))
+        subgenus_b = Protonym.create!(parent: genus, name: 'Myrmentoma', rank_class: Ranks.lookup(:iczn, :subgenus))
+        Protonym.create!(parent: subgenus_a, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                         verbatim_author: 'Mayr', year_of_publication: 1862)
+        Protonym.create!(parent: subgenus_b, name: 'americanus', rank_class: Ranks.lookup(:iczn, :species),
+                         verbatim_author: 'Emery', year_of_publication: 1893)
+
+        @import_dataset = stage_specification_file('type_status_wildcard_subgenus_ambiguous.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'errors the row, naming the ambiguous candidates, unlike the equivalent scientificName-matching case' do
+        expect_row_tally(results, errored: 1)
+        expect(row_error_messages(results.first, :typeStatus).join).to include('Multiple names returned in wildcard search')
+      end
+
+      it 'creates no TypeMaterial' do
+        expect(TypeMaterial.count).to eq(0)
+      end
+    end
+  end
+
+  context 'a TypeMaterial that fails its own validation aborts the whole row' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      Protonym.create!(parent: root, name: 'Camponotus', rank_class: Ranks.lookup(:iczn, :genus))
+
+      @import_dataset = stage_specification_file('type_status_invalid_type_material_aborts_row.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    # `occurrence.rb`'s own comment above this code (~line 332) states the intent plainly: "Best
+    # effort only, import will proceed even if creating the type material fails." In practice it
+    # does not: `TypeMaterial.new(collection_object:, ...)` registers the (unsaved, invalid) record
+    # on `collection_object.type_materials` in memory via `inverse_of`; that association is
+    # validated automatically as part of `collection_object.valid?`, which is itself checked shortly
+    # after by `Identifier::Local::Import::Dwc`'s `validates_associated :identifier_object`
+    # (`polymorphic_annotates`, app/models/concerns/shared/polymorphic_annotator.rb) when the
+    # occurrenceID identifier is saved. The row errors, but the reported problem is a confusing,
+    # unrelated-looking `identifier_object: "is invalid"` — nothing about the message points at the
+    # actual cause. Recorded as the expected behavior (the code's own stated intent: proceed without
+    # the type material), not the current one.
+    xit 'imports the row without a TypeMaterial, per the "best effort" behavior described in code, instead of erroring' do
+      expect_row_tally(results, imported: 1)
+      expect(TypeMaterial.count).to eq(0)
+    end
+
+    it 'currently errors instead, with a message that does not mention TypeMaterial, protonym rank, or typeStatus at all' do
+      expect_row_tally(results, errored: 1)
+      expect(row_error_messages(results.first, :identifier_object)).to include('is invalid')
+    end
+  end
 end

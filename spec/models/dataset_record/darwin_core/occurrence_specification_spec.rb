@@ -1146,4 +1146,371 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
       end
     end
   end
+
+  context 'eventID namespace mechanics' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_namespace, short_name: 'EVT', delimiter: 'NONE')
+
+      @import_dataset = stage_specification_file('event_id_namespace.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports both rows' do
+      expect_row_tally(results, imported: 2)
+    end
+
+    it 'creates an Event identifier for both rows, even the one without an explicit namespace' do
+      expect(Identifier::Local::Event.count).to eq(2)
+    end
+
+    it 'auto-creates a default namespace for the row with no TW:Namespace:eventID column value, unlike catalogNumber' do
+      default_namespace = Identifier::Local::Event.find_by(identifier: '100').namespace
+      expect(default_namespace.short_name).not_to eq('EVT')
+      expect(default_namespace.verbatim_short_name).to eq('eventID')
+    end
+
+    it 'uses the named namespace for the row that provides one' do
+      expect(Identifier::Local::Event.find_by(identifier: '200').namespace.short_name).to eq('EVT')
+    end
+
+    it 'computes each identifier from its namespace short name and the eventID value' do
+      expect(Identifier::Local::Event.pluck(:cached).sort).to eq(%w[EVT200 eventID:100])
+    end
+  end
+
+  context 'fieldNumber namespace mechanics' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_namespace, short_name: 'FLD', delimiter: 'NONE')
+
+      @import_dataset = stage_specification_file('field_number_namespace.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors a fieldNumber missing its companion namespace column, and imports one that has it' do
+      expect_row_tally(results, imported: 1, errored: 1)
+    end
+
+    it "names the missing companion column, not 'fieldNumber' itself" do
+      expect(row_error_messages(results.first, 'TW:Namespace:fieldNumber')).to include('Namespace not found')
+    end
+
+    it 'creates the FieldNumber identifier in the named namespace' do
+      expect(Identifier::Local::FieldNumber.count).to eq(1)
+      expect(Identifier::Local::FieldNumber.first.namespace.short_name).to eq('FLD')
+    end
+
+    it 'computes the identifier value from the namespace short name and the fieldNumber value' do
+      expect(Identifier::Local::FieldNumber.first.cached).to eq('FLD200')
+    end
+  end
+
+  context 'eventDate: single value vs. a range' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('event_date_single_and_range.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports both rows' do
+      expect_row_tally(results, imported: 2)
+    end
+
+    it 'a single date populates the start date only, leaving the end date unset' do
+      ce = CollectingEvent.first
+      expect([ce.start_date_year, ce.start_date_month, ce.start_date_day]).to eq([1983, 10, 25])
+      expect([ce.end_date_year, ce.end_date_month, ce.end_date_day]).to eq([nil, nil, nil])
+    end
+
+    it 'a range (start/end separated by "/") populates both the start and end dates' do
+      ce = CollectingEvent.second
+      expect([ce.start_date_year, ce.start_date_month, ce.start_date_day]).to eq([2020, 11, 30])
+      expect([ce.end_date_year, ce.end_date_month, ce.end_date_day]).to eq([2020, 12, 4])
+    end
+  end
+
+  context 'year, month, and day columns as an alternative to eventDate' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('event_date_year_month_day.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'populates the start date from year, month, and day alone' do
+      ce = CollectingEvent.first
+      expect([ce.start_date_year, ce.start_date_month, ce.start_date_day]).to eq([1999, 7, 4])
+    end
+  end
+
+  context 'eventDate conflicts with year, month, and/or day' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('event_date_conflict.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'names the conflict' do
+      expect(row_error_messages(results.first, :eventDate))
+        .to include('Conflicting values. Please check year, month, and day match eventDate')
+    end
+
+    it 'creates no CollectingEvent' do
+      expect(CollectingEvent.count).to eq(0)
+    end
+  end
+
+  context 'verbatimEventDate' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('event_date_verbatim.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'stores the raw value verbatim alongside the parsed eventDate, unmodified' do
+      ce = CollectingEvent.first
+      expect(ce.verbatim_date).to eq("summer of '99")
+      expect([ce.start_date_year, ce.start_date_month, ce.start_date_day]).to eq([1999, 7, 4])
+    end
+  end
+
+  context 'startDayOfYear and endDayOfYear' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('event_start_end_day_of_year.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports the two rows with a year, and errors the row without one' do
+      expect_row_tally(results, imported: 2, errored: 1)
+    end
+
+    it 'converts startDayOfYear and endDayOfYear (with year) into a calendar start and end date' do
+      ce = CollectingEvent.first
+      expect([ce.start_date_year, ce.start_date_month, ce.start_date_day]).to eq([2000, 2, 29])
+      expect([ce.end_date_year, ce.end_date_month, ce.end_date_day]).to eq([2000, 3, 5])
+    end
+
+    it 'converts startDayOfYear alone into a calendar start date, leaving the end date unset' do
+      ce = CollectingEvent.second
+      expect([ce.start_date_year, ce.start_date_month, ce.start_date_day]).to eq([2000, 2, 29])
+      expect([ce.end_date_year, ce.end_date_month, ce.end_date_day]).to eq([nil, nil, nil])
+    end
+
+    it 'requires a year for endDayOfYear, the same as it does for startDayOfYear' do
+      expect(row_error_messages(results.third, :endDayOfYear)).to include('Missing year value')
+    end
+  end
+
+  context 'eventID reused across separate imports' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_namespace, short_name: 'EVT', delimiter: 'NONE')
+
+      @results_a = stage_specification_file('event_id_reuse_a.tsv').import(5000, 100)
+      @results_b = stage_specification_file('event_id_reuse_b.tsv').import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports all rows' do
+      expect_row_tally(@results_a, imported: 2)
+      expect_row_tally(@results_b, imported: 2)
+    end
+
+    it 'does NOT share a CollectingEvent for the same eventID left to its default per-import namespace' do
+      expect(CollectionObject.first.collecting_event_id).not_to eq(CollectionObject.third.collecting_event_id)
+    end
+
+    it 'DOES share a CollectingEvent for the same eventID given an explicit, shared namespace' do
+      expect(CollectionObject.second.collecting_event_id).to eq(CollectionObject.fourth.collecting_event_id)
+    end
+
+    it 'creates 3 CollectingEvents total: 2 distinct default-namespace ones plus 1 shared explicit-namespace one' do
+      expect(CollectingEvent.count).to eq(3)
+    end
+  end
+
+  context 'fieldNumber reused across separate imports' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_namespace, short_name: 'FLD', delimiter: 'NONE')
+
+      @results_a = stage_specification_file('field_number_reuse_a.tsv').import(5000, 100)
+      @results_b = stage_specification_file('field_number_reuse_b.tsv').import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports both rows' do
+      expect_row_tally(@results_a, imported: 1)
+      expect_row_tally(@results_b, imported: 1)
+    end
+
+    it 'shares the same CollectingEvent, since fieldNumber always requires an explicit, shared namespace' do
+      expect(CollectionObject.first.collecting_event_id).to eq(CollectionObject.second.collecting_event_id)
+    end
+
+    it 'creates only 1 CollectingEvent and 1 FieldNumber identifier' do
+      expect(CollectingEvent.count).to eq(1)
+      expect(Identifier::Local::FieldNumber.count).to eq(1)
+    end
+  end
+
+  context 'eventID and fieldNumber refer to inconsistent collecting events' do
+    context 'fieldNumber does not match a previously established collecting event' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'EVT', delimiter: 'NONE')
+        FactoryBot.create(:valid_namespace, short_name: 'FLD', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file('event_field_number_partial_mismatch.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'imports row 1, and errors row 2' do
+        expect_row_tally(results, imported: 1, errored: 1)
+      end
+
+      it 'names the conflict rather than silently accepting either value' do
+        expect(row_error_messages(results.second, 'eventID/fieldNumber'))
+          .to include('does not match previous definition of collecting event')
+      end
+
+      it 'creates only 1 CollectingEvent' do
+        expect(CollectingEvent.count).to eq(1)
+      end
+    end
+
+    context 'eventID and fieldNumber each already belong to a different, previously established collecting event' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'EVT', delimiter: 'NONE')
+        FactoryBot.create(:valid_namespace, short_name: 'FLD', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file('event_field_number_conflicting_ce.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'imports rows 1 and 2, and errors row 3' do
+        expect_row_tally(results, imported: 2, errored: 1)
+      end
+
+      it 'names the conflict between the two previously established collecting events' do
+        expect(row_error_messages(results.third, 'eventID/fieldNumber'))
+          .to include('eventId and fieldNumber refer to different collecting events')
+      end
+
+      it 'creates 2 CollectingEvents, one per identifier, never merging them' do
+        expect(CollectingEvent.count).to eq(2)
+      end
+    end
+  end
+
+  context 'no eventID or fieldNumber given' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('no_event_field_number_identical_locality.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports both rows' do
+      expect_row_tally(results, imported: 2)
+    end
+
+    it 'creates a separate CollectingEvent per row, even though every other attribute is identical' do
+      expect(CollectingEvent.count).to eq(2)
+      expect(CollectionObject.first.collecting_event_id).not_to eq(CollectionObject.second.collecting_event_id)
+    end
+  end
 end

@@ -2802,4 +2802,242 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
       end
     end
   end
+
+  context 'TW:DataAttribute:<target_class>:<predicate>' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_predicate, name: 'ageInDays', project: root.project)
+
+      @import_dataset = stage_specification_file('tw_data_attribute.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'attaches a data attribute to the CollectionObject, using the named (pre-existing) predicate' do
+      da = CollectionObject.first.data_attributes.first
+      expect(da.predicate.name).to eq('ageInDays')
+      expect(da.value).to eq('5')
+    end
+  end
+
+  context 'TW:DataAttribute: predicate not found' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('tw_data_attribute_predicate_not_found.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row: unlike georeferencedBy, this mechanism never auto-creates the predicate' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'names the missing predicate' do
+      expect(row_error_messages(results.first, 'tw:dataattribute:collectionobject:nonexistentpredicate'))
+        .to include('Predicate with nonexistentpredicate URI or name not found')
+    end
+  end
+
+  context 'TW:BiocurationGroup:<group>' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      group = FactoryBot.create(:valid_biocuration_group, name: 'Caste', project: root.project)
+      klass = FactoryBot.create(:valid_biocuration_class, name: 'Queen', project: root.project)
+      Tag.create!(keyword: group, tag_object: klass)
+
+      @import_dataset = stage_specification_file('tw_biocuration_group.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'creates a BiocurationClassification using the named group and class, both of which must already exist' do
+      bc = CollectionObject.first.biocuration_classifications.first
+      expect(bc.biocuration_class.name).to eq('Queen')
+    end
+  end
+
+  context 'TW:BiocurationGroup: group not found' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('tw_biocuration_group_not_found.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    # Unlike `sex` (a dedicated Occurrence-class term, which auto-creates its BiocurationGroup and
+    # any new BiocurationClass value it hasn't seen before), this generic mechanism requires both
+    # the group and the class to already exist in the project.
+    it 'errors the row instead of auto-creating the group, unlike sex' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'names the missing group' do
+      expect(row_error_messages(results.first, 'tw:biocurationgroup:nonexistent'))
+        .to include("Biocuration group with 'nonexistent' URI or name not found")
+    end
+  end
+
+  context 'automatic mapping when a project predicate URI matches a DwC term' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      project = root.project
+      @predicate = FactoryBot.create(
+        :valid_predicate, name: 'my custom language field', project:,
+        uri: 'http://rs.tdwg.org/dwc/terms/language'
+      )
+      # Simulates a curator registering the predicate for CollectionObject via Project Preferences,
+      # merging into the existing default rather than replacing it (the default already has both
+      # 'CollectionObject' and 'CollectingEvent' keys; replacing the whole hash would drop one).
+      project.preferences['model_predicate_sets']['CollectionObject'] = [@predicate.id]
+      project.save!
+
+      @import_dataset = stage_specification_file('tw_dwc_predicate_auto_mapping.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it "attaches a data attribute using the project's own predicate, reading the column matching the predicate's DwC term" do
+      da = CollectionObject.first.data_attributes.first
+      expect(da.predicate).to eq(@predicate)
+      expect(da.value).to eq('en')
+    end
+  end
+
+  context 'TW:<model_class>:<field> direct field mapping' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('tw_direct_field_mapping.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'sets the named CollectingEvent model field directly' do
+      expect(CollectingEvent.first.verbatim_label).to eq('Some Locality, 3-IV-1999, J. Smith')
+    end
+  end
+
+  context 'TW:<model_class>:<field> naming a field that is not allowed' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('tw_direct_field_mapping_invalid.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'names the field and states that it is not a valid attribute for the model' do
+      expect(row_error_messages(results.first, 'tw:collectingevent:not_a_real_field'))
+        .to include('not_a_real_field is not a valid CollectingEvent attribute')
+    end
+  end
+
+  context 'TW:Tag:<class>:<selector>' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_keyword, name: 'Reviewed', project: root.project)
+
+      @import_dataset = stage_specification_file('tw_tag.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it "applies the named (pre-existing) Keyword as a tag on the CollectionObject, since the value is 'true'" do
+      expect(CollectionObject.first.tags.map { |t| t.keyword.name }).to eq(['Reviewed'])
+    end
+  end
+
+  context 'TW:Tag: "false" and an invalid value' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      root = FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_keyword, name: 'Reviewed', project: root.project)
+
+      @import_dataset = stage_specification_file('tw_tag_false_and_invalid.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports the "false" row without applying the tag, and errors the row with an invalid value' do
+      expect_row_tally(results, imported: 1, errored: 1)
+    end
+
+    it 'creates no tags at all' do
+      expect(CollectionObject.first.tags).to be_empty
+    end
+
+    it 'names the accepted values for the invalid one' do
+      expect(row_error_messages(results.second, 'TW:Tag:CollectionObject:Reviewed'))
+        .to include('Tag value must be "true" or "1" to apply, or blank, "false", or "0", to not apply')
+    end
+  end
 end

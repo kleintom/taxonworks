@@ -310,6 +310,41 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
     end
   end
 
+  context 'recordNumber given with its namespace prefix already included' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_namespace, short_name: 'DEF', delimiter: 'NONE')
+
+      @import_dataset = stage_specification_file('record_number_prefix_included.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    # Unlike `catalogNumber` (occurrence.rb ~line 351-353, `delete_namespace_prefix!` strips a given
+    # prefix before creating the identifier) and `eventID` (~line 430, same), `recordNumber`'s
+    # identifier creation (~line 337-349) never calls `delete_namespace_prefix!` at all. A value
+    # already including the namespace prefix is stored as-is, and the computed `cached` value
+    # duplicates the prefix rather than matching what was given. Confirmed empirically: `recordNumber:
+    # "DEF222"` in namespace `DEF` produces `cached: "DEFDEF222"`, with no error. Recorded as the
+    # expected behavior (either strip the prefix tolerantly, matching catalogNumber/eventID's
+    # default, or reject the mismatch the way their opt-in verbatim-match settings do), not the
+    # current one.
+    xit 'errors the row, naming the mismatch, instead of silently doubling the namespace prefix' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'currently imports instead, computing a doubled-prefix identifier with no indication anything is wrong' do
+      expect_row_tally(results, imported: 1)
+      expect(Identifier::Local::RecordNumber.first.cached).to eq('DEFDEF222')
+    end
+  end
+
   context 'recordedBy' do
     before :all do
       DatabaseCleaner.start
@@ -1217,6 +1252,35 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
 
     it 'computes the identifier value from the namespace short name and the fieldNumber value' do
       expect(Identifier::Local::FieldNumber.first.cached).to eq('FLD200')
+    end
+  end
+
+  context 'fieldNumber given with its namespace prefix already included' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      FactoryBot.create(:valid_namespace, short_name: 'FLD', delimiter: 'NONE')
+
+      @import_dataset = stage_specification_file('field_number_prefix_included.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    # Same underlying issue as recordNumber (see 'recordNumber given with its namespace prefix
+    # already included'): fieldNumber's identifier creation (occurrence.rb ~line 446-462) never
+    # calls `delete_namespace_prefix!` either.
+    xit 'errors the row, naming the mismatch, instead of silently doubling the namespace prefix' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'currently imports instead, computing a doubled-prefix identifier with no indication anything is wrong' do
+      expect_row_tally(results, imported: 1)
+      expect(Identifier::Local::FieldNumber.first.cached).to eq('FLDFLD200')
     end
   end
 
@@ -2514,6 +2578,116 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
       expect(TaxonName.exists?(name: 'americanus')).to be true
       expect(TaxonName.exists?(name: 'WrongGenus')).to be false
       expect(TaxonName.exists?(name: 'wrongepithet')).to be false
+    end
+  end
+
+  context 'enable searching for Organization name in identifiedBy' do
+    context 'setting off (default)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:organization, name: 'Field Museum')
+
+        @import_dataset = stage_specification_file('identified_by_organization.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row' do
+        expect_row_tally(@results, imported: 1)
+      end
+
+      it 'never checks Organizations; identifiedBy is always run through person-name parsing, even when it names an existing Organization' do
+        td = TaxonDetermination.first
+        expect(td.determiners_organization).to be_empty
+      end
+    end
+
+    context 'setting on' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        @org = FactoryBot.create(:organization, name: 'Field Museum')
+
+        @import_dataset = stage_specification_file(
+          'identified_by_organization.tsv',
+          import_settings: { 'enable_organization_determiners' => true }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row' do
+        expect_row_tally(@results, imported: 1)
+      end
+
+      it 'matches identifiedBy to the Organization by name, instead of parsing it as a person' do
+        td = TaxonDetermination.first
+        expect(td.determiners_organization).to eq([@org])
+        expect(td.determiners).to be_empty
+      end
+    end
+  end
+
+  context 'also search for Organization alternate name' do
+    context 'setting off' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:organization, name: 'Field Museum', alternate_name: 'FM')
+
+        @import_dataset = stage_specification_file(
+          'identified_by_organization_alt_name.tsv',
+          import_settings: { 'enable_organization_determiners' => true }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row' do
+        expect_row_tally(@results, imported: 1)
+      end
+
+      it "does not match identifiedBy 'FM' to the Organization via its alternate name" do
+        td = TaxonDetermination.first
+        expect(td.determiners_organization).to be_empty
+      end
+    end
+
+    context 'setting on' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        @org = FactoryBot.create(:organization, name: 'Field Museum', alternate_name: 'FM')
+
+        @import_dataset = stage_specification_file(
+          'identified_by_organization_alt_name.tsv',
+          import_settings: { 'enable_organization_determiners' => true, 'enable_organization_determiners_alt_name' => true }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row' do
+        expect_row_tally(@results, imported: 1)
+      end
+
+      it "matches identifiedBy 'FM' to the Organization via its alternate name" do
+        td = TaxonDetermination.first
+        expect(td.determiners_organization).to eq([@org])
+      end
     end
   end
 end

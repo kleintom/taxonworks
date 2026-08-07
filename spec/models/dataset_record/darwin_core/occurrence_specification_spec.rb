@@ -1364,6 +1364,447 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
     end
   end
 
+  context 'eventTime: single value vs. a range' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('event_time_single_and_range.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'imports both rows' do
+      expect_row_tally(results, imported: 2)
+    end
+
+    it 'a single time populates the start time only, leaving the end time unset' do
+      ce = CollectingEvent.first
+      expect([ce.time_start_hour, ce.time_start_minute, ce.time_start_second]).to eq([10, 15, 30])
+      expect([ce.time_end_hour, ce.time_end_minute, ce.time_end_second]).to eq([nil, nil, nil])
+    end
+
+    it 'a range (start/end separated by "/") populates both the start and end times' do
+      ce = CollectingEvent.second
+      expect([ce.time_start_hour, ce.time_start_minute, ce.time_start_second]).to eq([10, 15, 30])
+      expect([ce.time_end_hour, ce.time_end_minute, ce.time_end_second]).to eq([14, 45, 0])
+    end
+  end
+
+  context 'malformed eventTime' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('event_time_malformed.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    # `parse_event_class` (app/models/dataset_record/darwin_core/occurrence.rb) matches `eventTime`
+    # against a regex and, unlike `eventDate` (parse_iso_date, which raises a clear "Invalid date"
+    # error on unparseable input), raises nothing when the regex fails to match at all: every named
+    # capture is simply nil, and Utilities::Hashes::set_unless_nil silently sets nothing. The row
+    # reports success with the time fields silently absent. Recorded as the expected behavior
+    # (matching eventDate's sibling handling of the identical situation), not the current one.
+    xit 'errors the row, naming the unparseable value, instead of silently discarding it' do
+      expect_row_tally(results, errored: 1)
+    end
+  end
+
+  context 'eventTime with an out-of-range component' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('event_time_out_of_range.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'creates no CollectingEvent' do
+      expect(CollectingEvent.count).to eq(0)
+    end
+
+    it 'names the field and the valid range, alongside a redundant second message' do
+      messages = row_error_messages(results.first, :time_start_minute)
+      expect(messages).to include('not in range')
+      expect(messages).to include('must be an integer between 0 and 59')
+    end
+  end
+
+  context 'country, stateProvince, county resolve to a GeographicArea' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      @county = FactoryBot.create(:level2_geographic_area) # Champaign, IL, US
+
+      @import_dataset = stage_specification_file('geographic_area_country_state_county.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'matches the most specific (county-level) GeographicArea' do
+      expect(CollectingEvent.first.geographic_area_id).to eq(@county.id)
+    end
+  end
+
+  context 'require geographical area data origin' do
+    context 'set to the data_origin actually used' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        @county = FactoryBot.create(:level2_geographic_area) # data_origin: 'Test Data'
+
+        @import_dataset = stage_specification_file(
+          'geographic_area_data_origin.tsv',
+          import_settings: { 'geographic_area_data_origin' => 'Test Data' }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row and matches the GeographicArea' do
+        expect_row_tally(@results, imported: 1)
+        expect(CollectingEvent.first.geographic_area_id).to eq(@county.id)
+      end
+    end
+
+    context 'set to a data_origin other than the one actually used' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:level2_geographic_area) # data_origin: 'Test Data'
+
+        @import_dataset = stage_specification_file(
+          'geographic_area_data_origin.tsv',
+          import_settings: { 'geographic_area_data_origin' => 'Some Other Source' }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row, matching no GeographicArea, without error' do
+        expect_row_tally(@results, imported: 1)
+        expect(CollectingEvent.first.geographic_area_id).to be_nil
+      end
+    end
+  end
+
+  context 'country, stateProvince, county: recursive fallback vs. exact match only' do
+    context 'setting off (default)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        @state = FactoryBot.create(:level2_geographic_area).parent # Illinois; also creates Champaign, US
+
+        @import_dataset = stage_specification_file('geographic_area_recursive_fallback.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row' do
+        expect_row_tally(@results, imported: 1)
+      end
+
+      it 'falls back to the state-level GeographicArea when the county does not match' do
+        expect(CollectingEvent.first.geographic_area_id).to eq(@state.id)
+      end
+    end
+
+    context 'setting on (require_geographic_area_exact_match)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:level2_geographic_area)
+
+        @import_dataset = stage_specification_file(
+          'geographic_area_recursive_fallback.tsv',
+          import_settings: { 'require_geographic_area_exact_match' => true }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row' do
+        expect_row_tally(@results, imported: 1)
+      end
+
+      it 'does not fall back, and does not error either: no GeographicArea is matched at all' do
+        expect(CollectingEvent.first.geographic_area_id).to be_nil
+      end
+    end
+  end
+
+  context 'country, stateProvince, county: error if no geographic area exists' do
+    context 'setting off (default)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+
+        @import_dataset = stage_specification_file('geographic_area_no_match.tsv')
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports the row, matching no GeographicArea, without error' do
+        expect_row_tally(@results, imported: 1)
+        expect(CollectingEvent.first.geographic_area_id).to be_nil
+      end
+    end
+
+    context 'setting on (require_geographic_area_exists)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+
+        @import_dataset = stage_specification_file(
+          'geographic_area_no_match.tsv',
+          import_settings: { 'require_geographic_area_exists' => true }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'errors the row instead' do
+        expect_row_tally(results, errored: 1)
+      end
+
+      it 'names the location levels that were searched for' do
+        expect(row_error_messages(results.first, 'country, stateProvince, county'))
+          .to include('GeographicArea with location levels county:Nowhere County, state_province:Nowhere State, country:Nowhereland not found.')
+      end
+    end
+  end
+
+  context 'countryCode as a fallback for country' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      earth = FactoryBot.create(:earth_geographic_area)
+      @country = FactoryBot.create(
+        :geographic_area, :country_gat,
+        name: 'United States', iso_3166_a2: 'US', iso_3166_a3: 'USA',
+        data_origin: 'country_names_and_code_elements', parent: earth
+      ).tap { |c| c.update!(level0_id: c.id) }
+
+      @import_dataset = stage_specification_file('geographic_area_country_code.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports both rows' do
+      expect_row_tally(@results, imported: 2)
+    end
+
+    it 'resolves a 2-letter countryCode to the matching country' do
+      expect(CollectionObject.first.collecting_event.geographic_area_id).to eq(@country.id)
+    end
+
+    it 'resolves a 3-letter countryCode to the matching country' do
+      expect(CollectionObject.second.collecting_event.geographic_area_id).to eq(@country.id)
+    end
+  end
+
+  context 'unrecognized countryCode' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('geographic_area_country_code_unrecognized.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    # `countryCode` resolution (app/models/dataset_record/darwin_core/occurrence.rb, ~line 522-527) does
+    # `GeographicArea.find_by(iso_3166_a2: country_code, data_origin: 'country_names_and_code_elements').name`
+    # with no nil check — an unrecognized code raises a raw `NoMethodError` ("undefined method 'name' for
+    # nil"), caught only by the generic `rescue StandardError`, which sets status `Failed` and stores the
+    # exception message and full Ruby backtrace, not a normal `DarwinCore::InvalidData` row error. Recorded
+    # as the expected behavior (a clean, named error, the same as every other unmatched-value case in this
+    # importer), not the current one.
+    xit 'errors the row, naming the unrecognized countryCode, instead of failing with an internal exception' do
+      expect_row_tally(results, errored: 1)
+    end
+  end
+
+  context 'decimalLatitude / decimalLongitude' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('geographic_area_lat_long.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    it 'imports the row' do
+      expect_row_tally(@results, imported: 1)
+    end
+
+    it 'stores decimalLatitude, decimalLongitude, and geodeticDatum verbatim on the CollectingEvent' do
+      ce = CollectingEvent.first
+      expect(ce.verbatim_latitude).to eq('40.11')
+      expect(ce.verbatim_longitude).to eq('-88.20')
+      expect(ce.verbatim_datum).to eq('WGS84')
+    end
+
+    it 'appends a unit suffix to coordinateUncertaintyInMeters for the CollectingEvent, but not for the Georeference' do
+      expect(CollectingEvent.first.verbatim_geolocation_uncertainty).to eq('50m')
+      expect(Georeference::VerbatimData.first.error_radius).to eq(50)
+    end
+
+    it 'creates a Georeference::VerbatimData record, since both latitude and longitude are present' do
+      expect(Georeference::VerbatimData.count).to eq(1)
+      expect(Georeference::VerbatimData.first.collecting_event).to eq(CollectingEvent.first)
+    end
+  end
+
+  context 'decimalLatitude without decimalLongitude' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('geographic_area_lat_without_long.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row rather than storing a partial coordinate' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'creates no Georeference' do
+      expect(Georeference::VerbatimData.count).to eq(0)
+    end
+  end
+
+  context 'coordinateUncertaintyInMeters must be an integer' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+
+      @import_dataset = stage_specification_file('geographic_area_coordinate_uncertainty_non_integer.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    it 'errors the row' do
+      expect_row_tally(results, errored: 1)
+    end
+
+    it 'names the field' do
+      expect(row_error_messages(results.first, :coordinateUncertaintyInMeters)).to include('Non-integer value')
+    end
+
+    it 'creates no CollectingEvent' do
+      expect(CollectingEvent.count).to eq(0)
+    end
+  end
+
+  context 'GeographicArea with a shape' do
+    before :all do
+      DatabaseCleaner.start
+
+      init_housekeeping
+      FactoryBot.create(:root_taxon_name)
+      @country = FactoryBot.create(:level0_geographic_area) # United States, no shape
+      geo_item = FactoryBot.create(:valid_geographic_item)
+      FactoryBot.create(:geographic_areas_geographic_item, geographic_area: @country, geographic_item: geo_item)
+
+      @import_dataset = stage_specification_file('geographic_area_has_shape.tsv')
+      @results = @import_dataset.import(5000, 100)
+    end
+
+    after(:all) { DatabaseCleaner.clean }
+
+    let(:results) { @results }
+
+    # `GeographicArea.has_shape` (app/models/geographic_area.rb) is `scope :has_shape, ->
+    # (has_shape = true) { if has_shape ... else <areas WITHOUT a shape> ... end }`. The call site
+    # (occurrence.rb) always calls it explicitly — `.has_shape(self.import_dataset.metadata.dig(...,
+    # 'require_geographic_area_has_shape'))` — and when that setting was never configured, `.dig`
+    # returns `nil`, which is passed explicitly, bypassing the `= true` default entirely. `if nil` is
+    # false, so the *else* branch runs: matching is silently restricted to GeographicAreas that do NOT
+    # have a shape. A GeographicArea that does have one (the normal case for real, imported gazetteer
+    # data) is never matched by default, at any level, unless a shapeless coarser ancestor happens to
+    # exist to fall back to. Confirmed empirically: enabling the setting explicitly (`true`) fixes
+    # matching for a shaped GeographicArea; leaving it unset does not. Recorded as the expected
+    # behavior (the setting's own documented purpose is an opt-in extra restriction, not a
+    # prerequisite for ordinary matching), not the current one.
+    xit 'matches a GeographicArea regardless of whether it has a shape, when the setting is not configured' do
+      expect_row_tally(results, imported: 1)
+      expect(CollectingEvent.first.geographic_area_id).to eq(@country.id)
+    end
+  end
+
   context 'eventID reused across separate imports' do
     before :all do
       DatabaseCleaner.start
@@ -1393,6 +1834,68 @@ describe 'DatasetRecord::DarwinCore::Occurrence, specification examples', type: 
 
     it 'creates 3 CollectingEvents total: 2 distinct default-namespace ones plus 1 shared explicit-namespace one' do
       expect(CollectingEvent.count).to eq(3)
+    end
+  end
+
+  context 'eventID must match its computed identifier verbatim' do
+    context 'setting off (default)' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'EVT', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file(
+          'event_id_verbatim_match.tsv',
+          import_settings: { 'require_tripcode_match_verbatim' => false }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      it 'imports an eventID given with or without its namespace prefix alike' do
+        expect_row_tally(@results, imported: 3)
+        expect(Identifier::Local::Event.pluck(:cached)).to contain_exactly('EVT100', 'EVT200', 'eventID:100')
+      end
+    end
+
+    context 'setting on' do
+      before :all do
+        DatabaseCleaner.start
+
+        init_housekeeping
+        FactoryBot.create(:root_taxon_name)
+        FactoryBot.create(:valid_namespace, short_name: 'EVT', delimiter: 'NONE')
+
+        @import_dataset = stage_specification_file(
+          'event_id_verbatim_match.tsv',
+          import_settings: { 'require_tripcode_match_verbatim' => true }
+        )
+        @results = @import_dataset.import(5000, 100)
+      end
+
+      after(:all) { DatabaseCleaner.clean }
+
+      let(:results) { @results }
+
+      it 'errors an eventID given without its namespace prefix, under an explicit namespace' do
+        expect_row_tally(results, imported: 2, errored: 1)
+      end
+
+      it 'names the mismatch between the computed and verbatim values' do
+        expect(row_error_messages(results.first, :eventID))
+          .to include('Computed Event EVT100 will not match verbatim 100. Verify the namespace delimiter is correct.')
+      end
+
+      it 'imports one given with its prefix already, matching verbatim' do
+        expect(Identifier::Local::Event.find_by(cached: 'EVT200')).to be_present
+      end
+
+      it 'does not apply to a row left to the default per-import namespace, since there is no explicit namespace to check against' do
+        expect(Identifier::Local::Event.find_by(cached: 'eventID:100')).to be_present
+      end
     end
   end
 

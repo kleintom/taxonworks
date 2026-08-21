@@ -505,7 +505,7 @@ class OtusController < ApplicationController
   # POST /otus/autoselect_col_create
   # Creates TaxonNames from a CoL alignment then wraps the result in a new OTU.
   def autoselect_col_create
-    tn_result = ::Autoselect::TaxonName::ColCreator.new(
+    tn_result = ::Autoselect::TaxonName::CatalogueOfLifeCreator.new(
       rows:     autoselect_col_create_params,
       col_code: params[:col_code],
       project_id: sessions_current_project_id,
@@ -519,7 +519,7 @@ class OtusController < ApplicationController
       updated_by_id: sessions_current_user_id
     )
     render json: { otu_id: otu.id, taxon_name_id: tn_result[:taxon_name_id], global_id: otu.to_global_id.to_s }
-  rescue ::Autoselect::TaxonName::ColCreator::CreationError => e
+  rescue ::Autoselect::TaxonName::CatalogueOfLifeCreator::CreationError => e
     render json: {
       error:           e.message,
       failed_col_name: e.col_name,

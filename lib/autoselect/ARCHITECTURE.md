@@ -90,30 +90,30 @@ the `extension.hook` hash sent to the client:
 
 ```
 lib/autoselect/
-  autoselect.rb              # namespace module (Zeitwerk compatibility)
-  base.rb                    # Autoselect::Base — all model autoselects inherit this
-  level.rb                   # Autoselect::Level — base class for all levels
+  autoselect.rb # namespace module (Zeitwerk compatibility)
+  base.rb # Autoselect::Base — all model autoselects inherit this
+  level.rb # Autoselect::Level — base class for all levels
   levels/
-    smart.rb                 # Autoselect::Levels::Smart — Queries delegation
-  operators.rb               # Autoselect::Operators — parsing + OPERATORS constant
-  response.rb                # Autoselect::Response — JSON envelope
-  hook.rb                    # Autoselect::Hook — cross-model level chain base
+    smart.rb # Autoselect::Levels::Smart — Queries delegation
+  operators.rb # Autoselect::Operators — parsing + OPERATORS constant
+  response.rb # Autoselect::Response — JSON envelope
+  hook.rb # Autoselect::Hook — cross-model level chain base
 
   taxon_name/
-    autoselect.rb            # Autoselect::TaxonName::Autoselect (3 levels: fast→smart→CoL)
-    operators.rb             # TaxonName operator overrides (currently inherits default)
+    autoselect.rb # Autoselect::TaxonName::Autoselect (3 levels: fast→smart→CoL)
+    operators.rb # TaxonName operator overrides (currently inherits default)
     levels/
-      fast.rb                # Prefix match on cached column
-      smart.rb               # Delegates to Queries::TaxonName::Autocomplete
-      catalogue_of_life.rb     # External CoL search
-    col_creator.rb           # TaxonName creation logic from CoL alignment data
+      fast.rb # Prefix match on cached column
+      smart.rb # Delegates to Queries::TaxonName::Autocomplete
+      catalogue_of_life.rb # External CoL search
+    catalogue_of_life_creator.rb # TaxonName creation logic from CoL alignment data
 
   otu/
-    autoselect.rb            # Autoselect::Otu::Autoselect (2 levels: smart→CoL)
-    operators.rb             # OTU operator overrides (currently inherits default)
+    autoselect.rb # Autoselect::Otu::Autoselect (2 levels: smart→CoL)
+    operators.rb # OTU operator overrides (currently inherits default)
     levels/
-      smart.rb               # Delegates to Queries::Otu::Autocomplete; handles !n sentinel
-      catalogue_of_life.rb     # Delegates to TaxonName CoL level; wraps with hook metadata
+      smart.rb # Delegates to Queries::Otu::Autocomplete; handles !n sentinel
+      catalogue_of_life.rb # Delegates to TaxonName CoL level; wraps with hook metadata
 ```
 
 ## Request / response flow

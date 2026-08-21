@@ -22,7 +22,9 @@ module Autoselect
         end
 
         def record_label(record)
-          [record.cached.to_s.presence, col_author_year(record)].compact.join(' ')
+          [record.cached.to_s.presence, col_author_year(record)]
+            .compact
+            .join(' ')
         end
 
         def record_label_html(record)
@@ -34,25 +36,35 @@ module Autoselect
 
         # @param term [String]
         # @param project_id [Integer, nil]
-        # @param dataset_id [String, nil] CoL dataset ID from user preferences; falls back to default when nil
-        # @return [Array<OpenStruct>] pseudo-records compatible with TaxonName autoselect format_results
-        def call(term:, operator: nil, project_id: nil, user_id: nil, dataset_id: nil, **_kwargs)
+        # @param dataset_id [String, nil] CoL dataset ID from user preferences;
+        #   falls back to default when nil
+        # @return [Array<OpenStruct>] pseudo-records compatible with TaxonName
+        #   autoselect format_results
+        def call(
+          term:, operator: nil, project_id: nil, user_id: nil, dataset_id: nil,
+          **_kwargs
+        )
           raw = ::Vendor::Colrapi.search(term, dataset_id:)
           results = raw['result'] || []
           return [] if results.empty?
 
           results.map do |col_result|
-            # Flat nameusage structure: 'id', 'status', 'name' hash, 'label', 'labelHtml'
-            col_name   = col_result.dig('name', 'scientificName') || col_result['label']
-            col_rank   = col_result.dig('name', 'rank')&.downcase
-            col_name   = ::Vendor::Colrapi.extract_subgenus_name(col_name) if col_rank == 'subgenus'
+            # Flat nameusage structure: 'id', 'status', 'name' hash, 'label',
+            # 'labelHtml'
+            col_name = col_result.dig('name', 'scientificName') || col_result['label']
+            col_rank = col_result.dig('name', 'rank')&.downcase
+            if col_rank == 'subgenus'
+              col_name = ::Vendor::Colrapi.extract_subgenus_name(col_name)
+            end
             col_status = col_result['status']
-            col_key    = col_result['id']
-            extension  = ::Vendor::Colrapi.build_extension(col_result, project_id, dataset_id:)
+            col_key = col_result['id']
+            extension = ::Vendor::Colrapi.build_extension(
+              col_result, project_id, dataset_id:
+            )
 
-            # Annotate whether the target name already exists in this project so the
-            # confirmation modal can offer "Select" instead of "Create" when nothing
-            # needs to be created.
+            # Annotate whether the target name already exists in this project so
+            # the confirmation modal can offer "Select" instead of "Create" when
+            # nothing needs to be created.
             if project_id.present?
               existing = ::TaxonName.where(project_id:, cached: col_name).first
               if existing
@@ -63,9 +75,12 @@ module Autoselect
               end
             end
 
-            # Flag when the target's rank is not resolvable in TaxonWorks (e.g. 'domain').
-            # ColCreator silently skips such rows, so the modal needs to know up-front.
-            extension = extension.merge(target_rank_unknown: true) unless rank_resolvable?(col_rank)
+            # Flag when the target's rank is not resolvable in TaxonWorks (e.g.
+            # 'domain'). CatalogueOfLifeCreator silently skips such rows, so the
+            # modal needs to know up-front.
+            unless rank_resolvable?(col_rank)
+              extension = extension.merge(target_rank_unknown: true)
+            end
 
             OpenStruct.new(
               id: nil,
@@ -82,12 +97,13 @@ module Autoselect
 
         # The display author+year for a CoL result.
         #
-        # CoL renders a recombination's authorship as the original (basionym) author+year
-        # wrapped in parens, followed by the combination authorship, e.g.
-        #   "(Chatton, 1925) Whittaker & Margulis, 1978".
-        # Per ICZN convention we show only the original author+year, keeping the parens
-        # that signal the recombination. A name described in its original genus has no
-        # leading parenthetical and is shown verbatim, e.g. "Linnaeus, 1758".
+        # CoL renders a recombination's authorship as the original (basionym)
+        # author+year wrapped in parens, followed by the combination authorship,
+        # e.g. "(Chatton, 1925) Whittaker & Margulis, 1978".
+        # Per ICZN convention we show only the original author+year, keeping the
+        # parens that signal the recombination. A name described in its original
+        # genus has no leading parenthetical and is shown verbatim, e.g.
+        # "Linnaeus, 1758".
         #
         # @return [String, nil]
         def col_author_year(record)

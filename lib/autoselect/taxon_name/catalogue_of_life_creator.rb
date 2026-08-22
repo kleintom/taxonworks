@@ -22,9 +22,6 @@ module Autoselect
         end
       end
 
-      # TODO:
-      COL_BASE_URI = 'https://www.catalogueoflife.org/data/taxon/'.freeze
-
       # @param rows [Array<Hash>] ordered distal→proximal; each hash has:
       #   col_name [String] — scientific name string from CoL
       #   col_rank [String] — human-readable rank (e.g. 'genus', 'species')

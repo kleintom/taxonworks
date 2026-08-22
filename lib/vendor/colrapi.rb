@@ -346,18 +346,27 @@ module Vendor
       name[/\(([^)]+)\)/, 1] || name
     end
 
+    # Maps a CoL nomenclatural code string to its corresponding TaxonWorks
+    # rank lookup table. CoL also has a 'cultivars' code (ICNCP), which
+    # TaxonWorks does not support and which is intentionally absent here.
+    #
+    # @param col_code [String, nil] 'zoological', 'botanical', 'bacterial', or 'viral'
+    # @return [Hash] mapping of recognized col_code to rank lookup table
+    def self.code_lookup_map
+      {
+        'zoological' => ::ICZN_LOOKUP,
+        'botanical'  => ::ICN_LOOKUP,
+        'bacterial'  => ::ICNP_LOOKUP,
+        'viral'      => ::ICVCN_LOOKUP
+      }
+    end
+
     # Maps a CoL rank name ('genus', 'family', …) and CoL nomenclatural code
-    # ('zoological', 'botanical', 'bacterial', 'viral') to the TaxonWorks RANK_SORT
-    # index. Higher index = more specific rank. Returns nil when unresolvable.
+    # to the TaxonWorks RANK_SORT index. Higher index = more specific rank.
+    # Returns nil when unresolvable.
     def self.col_rank_sort(rank_name, col_code)
       return nil if rank_name.blank?
-      lookup = case col_code
-               when 'zoological' then ::ICZN_LOOKUP
-               when 'botanical'  then ::ICN_LOOKUP
-               when 'bacterial'  then ::ICNP_LOOKUP
-               when 'viral'      then ::ICVCN_LOOKUP
-               else ::ICZN_LOOKUP
-               end
+      lookup = code_lookup_map[col_code] || ::ICZN_LOOKUP
       rank_class = lookup[rank_name]
       rank_class ? ::RANK_SORT[rank_class] : nil
     end

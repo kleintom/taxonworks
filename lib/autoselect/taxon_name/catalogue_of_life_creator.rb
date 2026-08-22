@@ -25,15 +25,6 @@ module Autoselect
       # TODO:
       COL_BASE_URI = 'https://www.catalogueoflife.org/data/taxon/'.freeze
 
-      # Maps CoL code strings to the primary lookup constant to use for rank
-      # resolution.
-      COL_CODE_LOOKUP_MAP = {
-        'zoological' => :ICZN_LOOKUP,
-        'botanical' => :ICN_LOOKUP,
-        'bacterial' => :ICNP_LOOKUP,
-        'viral' => :ICVCN_LOOKUP
-      }.freeze
-
       # @param rows [Array<Hash>] ordered distal→proximal; each hash has:
       #   col_name [String] — scientific name string from CoL
       #   col_rank [String] — human-readable rank (e.g. 'genus', 'species')
@@ -191,18 +182,16 @@ module Autoselect
         return nil if rank_string.blank?
         r = rank_string.to_s.downcase
 
-        primary_key = COL_CODE_LOOKUP_MAP[@col_code]
+        code_lookup_map = ::Vendor::Colrapi.code_lookup_map
+        primary_lookup = code_lookup_map[@col_code]
 
-        if primary_key
-          primary_lookup = Object.const_get("::#{primary_key}")
+        if primary_lookup
           result = primary_lookup[r]
           return result if result
         end
 
-        fallbacks = [:ICZN_LOOKUP, :ICN_LOOKUP, :ICNP_LOOKUP, :ICVCN_LOOKUP]
-          .reject { |k| k == primary_key }
-        fallbacks.each do |key|
-          result = Object.const_get("::#{key}")[r] # TODO: BAD
+        (code_lookup_map.values - [primary_lookup]).each do |lookup|
+          result = lookup[r]
           return result if result
         end
 

@@ -163,94 +163,18 @@ module Autoselect
       end
 
 
-      # TODO: needs to be in an isolated library
-
       # Maps a human-readable CoL rank string to a TaxonWorks rank_class
-      # string.
-      #
-      # When @col_code is recognized (e.g. 'botanical' → ICN_LOOKUP), that
-      # lookup is tried first so that plant names receive ICN rank classes
-      # rather than ICZN ones.  Falls back through all four codes in order so
-      # that any rank resolves if possible.
-      #
-      # Returns nil for unknown ranks; callers should skip creation for those
-      # rows.
+      # string, using @col_code as the primary code and falling back
+      # through the rest so that any rank resolves if possible. Returns nil
+      # for unknown ranks; callers should skip creation for those rows.
       def resolve_rank_class(rank_string)
-        return nil if rank_string.blank?
-        r = rank_string.to_s.downcase
-
-        code_lookup_map = ::Vendor::Colrapi.code_lookup_map
-        primary_lookup = code_lookup_map[@col_code]
-
-        if primary_lookup
-          result = primary_lookup[r]
-          return result if result
-        end
-
-        (code_lookup_map.values - [primary_lookup]).each do |lookup|
-          result = lookup[r]
-          return result if result
-        end
-
-        nil
+        ::Vendor::Colrapi.rank_class_for(rank_string, @col_code)
       end
 
-      #
-      # TODO: Needs to be in an isolated library
-      #
       # Splits a CoL authorship string into
-      # [verbatim_author, year_of_publication].
-      #
-      # TaxonWorks Protonym validates that verbatim_author contains no digits,
-      # so the year must be stored separately in year_of_publication.
-      #
-      # CoL provides authorship in two forms:
-      #   "Linnaeus, 1758" → author "Linnaeus", year 1758
-      #   "(Chatton, 1925) Whittaker & Margulis, 1978" →
-      #     author "Chatton", year 1925 (basionym takes precedence when no
-      #     explicit col_year is given)
-      #
-      # An explicit col_year (from the target row's combinationAuthorship.year)
-      # takes precedence. If no year can be extracted the author string is
-      # returned as-is with year nil.
+      # [verbatim_author, year_of_publication]. See Vendor::Colrapi.split_authorship.
       def split_authorship(col_authorship, col_year)
-        return [nil, nil] if col_authorship.blank?
-
-        # Prefer the explicit year already extracted server-side (present for
-        # the target row).
-        year = col_year.presence&.to_i
-
-        # When authorship leads with "(Basionym Author, YYYY)" and no explicit
-        # year was supplied, take author and year from the basionym
-        # parenthetical — not the trailing combination authorship.
-        if year.nil? && (m = col_authorship.match(/\A\(([^)]+),\s*(\d{4})\)/))
-          basionym_author = m[1].gsub(/,?\s*\b\d{4}\b/, '').strip
-          basionym_author = nil if basionym_author.blank?
-          return [basionym_author, m[2].to_i]
-        end
-
-        # Strip any trailing ", YYYY" or " YYYY" from the authorship string.
-        # Also strip years embedded inside parenthetical groups, e.g.
-        # "(Chatton, 1925)".
-        author = col_authorship
-          .gsub(/,?\s*\b\d{4}\b/, '') # remove ", 1925" and " 1925" occurrences
-          .gsub(/\(\s*\)/, '') # clean up empty parens left behind
-          .gsub(/,\s*\z/, '') # strip trailing comma
-          .strip
-          .then { |a|
-            a.match?(/\A\([^)]*\)\z/) ? a : a.gsub(/\([^)]*\)\s*/, '').strip
-          }
-
-        # If no explicit year was given, extract the last 4-digit year from the
-        # string (the combination year, not the basionym year in parentheses).
-        if year.nil?
-          if (m = col_authorship.scan(/\b(\d{4})\b/).last)
-            year = m[0].to_i
-          end
-        end
-
-        author = nil if author.blank?
-        [author, year]
+        ::Vendor::Colrapi.split_authorship(col_authorship, col_year)
       end
 
     end

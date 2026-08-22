@@ -362,13 +362,109 @@ module Vendor
     end
 
     # Maps a CoL rank name ('genus', 'family', …) and CoL nomenclatural code
+    # to a TaxonWorks rank_class string. Returns nil when unresolvable.
+    #
+    # @param rank_name [String]
+    # @param col_code [String, nil] see code_lookup_map
+    # @param fallback_strategy [Symbol] how to resolve when col_code is
+    #   unrecognized, or its lookup doesn't have rank_name:
+    #   :default_iczn — fall back to ICZN_LOOKUP only
+    #   :try_all_codes — fall back through every other code's lookup, in
+    #     code_lookup_map order
+    # @return [String, nil]
+    def self.rank_class_for(rank_name, col_code, fallback_strategy: :try_all_codes)
+      return nil if rank_name.blank?
+      r = rank_name.to_s.downcase
+
+      map = code_lookup_map
+      primary_lookup = map[col_code]
+
+      if primary_lookup
+        result = primary_lookup[r]
+        return result if result
+      end
+
+      fallback_lookups =
+        case fallback_strategy
+        when :default_iczn
+          primary_lookup ? [] : [::ICZN_LOOKUP]
+        when :try_all_codes
+          map.values - [primary_lookup]
+        end
+
+      fallback_lookups.each do |lookup|
+        result = lookup[r]
+        return result if result
+      end
+
+      nil
+    end
+
+    # Maps a CoL rank name ('genus', 'family', …) and CoL nomenclatural code
     # to the TaxonWorks RANK_SORT index. Higher index = more specific rank.
     # Returns nil when unresolvable.
     def self.col_rank_sort(rank_name, col_code)
-      return nil if rank_name.blank?
-      lookup = code_lookup_map[col_code] || ::ICZN_LOOKUP
-      rank_class = lookup[rank_name]
+      rank_class = rank_class_for(rank_name, col_code, fallback_strategy: :default_iczn)
       rank_class ? ::RANK_SORT[rank_class] : nil
+    end
+
+    # Splits a CoL authorship string into
+    # [verbatim_author, year_of_publication].
+    #
+    # TaxonWorks Protonym validates that verbatim_author contains no digits,
+    # so the year must be stored separately in year_of_publication.
+    #
+    # CoL provides authorship in two forms:
+    #   "Linnaeus, 1758" → author "Linnaeus", year 1758
+    #   "(Chatton, 1925) Whittaker & Margulis, 1978" →
+    #     author "Chatton", year 1925 (basionym takes precedence when no
+    #     explicit col_year is given)
+    #
+    # An explicit col_year (from the target row's combinationAuthorship.year)
+    # takes precedence. If no year can be extracted the author string is
+    # returned as-is with year nil.
+    #
+    # @param col_authorship [String, nil]
+    # @param col_year [String, nil]
+    # @return [Array(String, Integer), Array(nil, nil)]
+    def self.split_authorship(col_authorship, col_year)
+      return [nil, nil] if col_authorship.blank?
+
+      # Prefer the explicit year already extracted server-side (present for
+      # the target row).
+      year = col_year.presence&.to_i
+
+      # When authorship leads with "(Basionym Author, YYYY)" and no explicit
+      # year was supplied, take author and year from the basionym
+      # parenthetical — not the trailing combination authorship.
+      if year.nil? && (m = col_authorship.match(/\A\(([^)]+),\s*(\d{4})\)/))
+        basionym_author = m[1].gsub(/,?\s*\b\d{4}\b/, '').strip
+        basionym_author = nil if basionym_author.blank?
+        return [basionym_author, m[2].to_i]
+      end
+
+      # Strip any trailing ", YYYY" or " YYYY" from the authorship string.
+      # Also strip years embedded inside parenthetical groups, e.g.
+      # "(Chatton, 1925)".
+      author = col_authorship
+        .gsub(/,?\s*\b\d{4}\b/, '') # remove ", 1925" and " 1925" occurrences
+        .gsub(/\(\s*\)/, '') # clean up empty parens left behind
+        .gsub(/,\s*\z/, '') # strip trailing comma
+        .strip
+        .then { |a|
+          a.match?(/\A\([^)]*\)\z/) ? a : a.gsub(/\([^)]*\)\s*/, '').strip
+        }
+
+      # If no explicit year was given, extract the last 4-digit year from the
+      # string (the combination year, not the basionym year in parentheses).
+      if year.nil?
+        if (m = col_authorship.scan(/\b(\d{4})\b/).last)
+          year = m[0].to_i
+        end
+      end
+
+      author = nil if author.blank?
+      [author, year]
     end
 
     # Extend to buffered with GNA in middle layer?

@@ -240,6 +240,75 @@ describe Vendor::Colrapi, type: :model do
       end
     end
 
+    # #4919: a species-rank ancestor only ever shows up in the alignment
+    # when the thing actually being imported is ranked below species — a
+    # plain species is itself the target (built from real epithet fields via
+    # uninomial_name, never from this path). So this specifically reproduces
+    # importing a subspecies: CoL's classification subresource returns its
+    # species ancestor as the FULL scientific name (e.g.
+    # "Phylloscopus umbrovirens"), unlike genus-and-above ranks where it's
+    # already a bare uninomial. Passing that straight through as col_name
+    # made CatalogueOfLifeCreator try to create a Protonym named
+    # "Phylloscopus umbrovirens", which fails TaxonName's latinized/no-space
+    # validation.
+    context 'when importing a subspecies, whose species ancestor comes back as a full binomial' do
+      let(:col_result) {
+        col_nameusage_result(scientific_name: 'Phylloscopus umbrovirens mackenzianus', rank: 'subspecies')
+      }
+
+      let(:classification_with_species) {
+        [col_classification_entry(id: 'SP1', name: 'Phylloscopus umbrovirens', rank: 'species')]
+      }
+
+      before do
+        allow(described_class).to receive(:ancestors)
+          .with('6MB3T')
+          .and_return(classification_with_species)
+      end
+
+      it 'extracts the subspecies epithet as the target col_name' do
+        expect(extension[:col_name]).to eq('mackenzianus')
+      end
+
+      it 'trims the species ancestor col_name to the terminal epithet, not the full binomial' do
+        entry = extension[:alignment].first
+        expect(entry[:col_name]).to eq('umbrovirens')
+      end
+
+      it 'still matches an existing TaxonName by the full binomial (its cached name)' do
+        existing = FactoryBot.create(:valid_taxon_name)
+        existing.update_column(:cached, 'Phylloscopus umbrovirens')
+
+        ext = described_class.build_extension(col_result, existing.project_id)
+        entry = ext[:alignment].first
+        expect(entry[:match]).to eq('exact')
+        expect(entry[:taxonworks_id]).to eq(existing.id)
+        expect(entry[:col_name]).to eq('umbrovirens')
+      end
+    end
+
+    # In practice CoL's backbone classification never puts a subspecies in
+    # the ancestor chain (species is always the deepest ancestor rank —
+    # subspecies only ever appears as the target), but the trim is written
+    # generically (last word wins) rather than species-rank-specific, so
+    # confirm it also handles a trinomial correctly if one ever shows up.
+    context 'when an ancestor is subspecies-rank (a trinomial)' do
+      let(:classification_with_subspecies) {
+        [col_classification_entry(id: 'SSP1', name: 'Phylloscopus umbrovirens mackenzianus', rank: 'subspecies')]
+      }
+
+      before do
+        allow(described_class).to receive(:ancestors)
+          .with('6MB3T')
+          .and_return(classification_with_subspecies)
+      end
+
+      it 'trims col_name to the terminal (subspecies) epithet' do
+        entry = extension[:alignment].first
+        expect(entry[:col_name]).to eq('mackenzianus')
+      end
+    end
+
     context 'when result is subgenus rank with paren-wrapped combination' do
       let(:subgenus_result) {
         {

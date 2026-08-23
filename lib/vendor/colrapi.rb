@@ -299,13 +299,23 @@ module Vendor
       ancestor_chain = ancestor_chain.reject { |a| a['rank']&.downcase == 'domain' }.reverse
 
       alignment = ancestor_chain.map do |ancestor|
-        rank     = ancestor['rank']&.downcase
-        # In classification entries 'name' is a plain String (the uninomial name)
-        anc_name = ancestor['name'].is_a?(String) ? ancestor['name'] : ancestor.dig('name', 'scientificName')
-        anc_name = extract_subgenus_name(anc_name) if rank == 'subgenus'
-        col_id   = ancestor['id']
+        rank = ancestor['rank']&.downcase
+        # In classification entries 'name' is a plain String. A species-rank
+        # ancestor here only happens when importing something ranked below
+        # species (e.g. a subspecies) — a plain species is itself the
+        # target, built from real epithet fields via uninomial_name, never
+        # from this path. For genus-and-above ranks 'name' is already a bare
+        # uninomial, but for that species-rank ancestor it's the FULL
+        # scientific name (e.g. "Phylloscopus umbrovirens") — match existing
+        # TaxonWorks records against that full name (their `cached` column
+        # is the full binomial too), but report just the terminal epithet as
+        # col_name, since that's what Protonym#name requires (#4919).
+        full_name = ancestor['name'].is_a?(String) ? ancestor['name'] : ancestor.dig('name', 'scientificName')
+        full_name = extract_subgenus_name(full_name) if rank == 'subgenus'
+        anc_name  = trailing_epithet(full_name)
+        col_id    = ancestor['id']
 
-        scope = ::TaxonName.where(cached: anc_name) # !!!
+        scope = ::TaxonName.where(cached: full_name) # !!!
         scope = scope.where(project_id:) if project_id.present?
         tw_record = scope.first
 
@@ -344,6 +354,16 @@ module Vendor
     def self.extract_subgenus_name(name)
       return name if name.nil?
       name[/\(([^)]+)\)/, 1] || name
+    end
+
+    # Classification-subresource ancestor entries store 'name' as the full
+    # scientific name for species-group/infraspecific ranks (unlike
+    # genus-and-above ranks, already bare uninomials) — trims to just the
+    # terminal epithet, e.g. "Phylloscopus umbrovirens" → "umbrovirens".
+    # A no-op for already-single-word names.
+    def self.trailing_epithet(name)
+      return name if name.nil?
+      name.split.last || name
     end
 
     # Maps a CoL nomenclatural code string to its corresponding TaxonWorks

@@ -1,7 +1,8 @@
 module Autoselect
   module TaxonName
-    # Creates TaxonName records (and CoL URI identifiers) from a Catalog of
-    # Life selection.
+    # Creates TaxonName records (CoL URI identifiers, and — for ICN
+    # recombinations — a Combination + CurrentCombination too) from a
+    # Catalog of Life selection.
     #
     # Receives an ordered list of rows (distal → proximal, i.e. kingdom
     # first, ending with the target — the row for the name the user
@@ -99,24 +100,7 @@ module Autoselect
 
             build_current_combination(tn, combination_author) if combination_author.present?
 
-            if row[:col_id].present?
-              begin
-                ::Identifier::Global::Uri::ChecklistBank.create!(
-                  taxon_id: row[:col_id],
-                  dataset_id: row[:dataset_id],
-                  identifier_object: tn,
-                  project_id: @project_id,
-                  by: @user_id
-                )
-              rescue ::ActiveRecord::RecordInvalid => e
-                raise CreationError.new(
-                  "CoL identifier for #{row[:col_name]}:
-                    #{e.record.errors.full_messages.join(', ')}",
-                  col_name: row[:col_name],
-                  col_id: row[:col_id]
-                )
-              end
-            end
+            create_col_identifier(tn, row) if row[:col_id].present?
 
             created_ids << tn.id
             parent_id = tn.id
@@ -131,6 +115,25 @@ module Autoselect
       # Returns the TaxonName id of the project's Root node.
       def project_root_id
         ::Project.find(@project_id).root_taxon_name.id
+      end
+
+      # Records the CoL taxon id as a ChecklistBank URI identifier on the
+      # freshly-created name.
+      def create_col_identifier(taxon_name, row)
+        ::Identifier::Global::Uri::ChecklistBank.create!(
+          taxon_id: row[:col_id],
+          dataset_id: row[:dataset_id],
+          identifier_object: taxon_name,
+          project_id: @project_id,
+          by: @user_id
+        )
+      rescue ::ActiveRecord::RecordInvalid => e
+        raise CreationError.new(
+          "CoL identifier for #{row[:col_name]}:
+            #{e.record.errors.full_messages.join(', ')}",
+          col_name: row[:col_name],
+          col_id: row[:col_id]
+        )
       end
 
       # Assigns a "not the accepted name" TaxonNameClassification to a

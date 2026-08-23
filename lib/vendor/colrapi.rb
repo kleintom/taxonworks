@@ -447,6 +447,38 @@ module Vendor
     # against ICNP or ICVCN ranks at all. Supporting those codes needs that
     # TaxonWorks-wide restriction lifted first, which is out of scope here.
     #
+    # Strips every ", YYYY" / " YYYY" occurrence out of text (e.g. a year
+    # embedded inside a parenthetical group), wherever it appears.
+    # @return [String]
+    def self.strip_years(text)
+      text.gsub(/,?\s*\b\d{4}\b/, '').strip
+    end
+
+    # Strips a single ", YYYY" / " YYYY" occurrence, but only when it's the
+    # last thing in text — leaves years elsewhere (e.g. inside a nested
+    # parenthetical) untouched.
+    # @return [String]
+    def self.strip_trailing_year(text)
+      text.sub(/,?\s*\b\d{4}\b\z/, '').strip
+    end
+
+    # The year at the very end of text, e.g. "Chatton, 1925" → 1925. nil
+    # when text doesn't end in one (e.g. a year-less ICN citation).
+    # @return [Integer, nil]
+    def self.extract_year(text)
+      m = text.match(/,?\s*\b(\d{4})\b\z/)
+      m && m[1].to_i
+    end
+
+    # The last standalone 4-digit year found anywhere in text — a looser
+    # fallback than extract_year for authorship strings where punctuation
+    # around the year is less predictable.
+    # @return [Integer, nil]
+    def self.extract_last_year(text)
+      m = text.scan(/\b(\d{4})\b/).last
+      m && m[0].to_i
+    end
+
     # @param col_authorship [String, nil]
     # @param col_year [String, nil]
     # @param col_code [String, nil] see code_lookup_map
@@ -456,7 +488,7 @@ module Vendor
 
       # ICZN always carries a year in its authorship citation.
       if col_code == 'zoological' && (basionym_match = col_authorship.match(/\A\(([^)]+),\s*(\d{4})\)/))
-        basionym_author = basionym_match[1].gsub(/,?\s*\b\d{4}\b/, '').strip
+        basionym_author = strip_years(basionym_match[1])
         basionym_author = basionym_author.blank? ? nil : "(#{basionym_author})"
         return [basionym_author, basionym_match[2].to_i, nil]
       end
@@ -465,12 +497,11 @@ module Vendor
       # follows the parenthetical is the current combination's author.
       if col_code != 'zoological' && (basionym_match = col_authorship.match(/\A\(([^)]+)\)\s*(.*)\z/))
         inner = basionym_match[1]
-        year_match = inner.match(/,?\s*\b(\d{4})\b\z/)
-        basionym_author = inner.sub(/,?\s*\b\d{4}\b\z/, '').strip
+        basionym_author = strip_trailing_year(inner)
         basionym_author = nil if basionym_author.blank?
-        basionym_year = year_match ? year_match[1].to_i : col_year.presence&.to_i
+        basionym_year = extract_year(inner) || col_year.presence&.to_i
 
-        combination_author = basionym_match[2].gsub(/,?\s*\b\d{4}\b/, '').strip
+        combination_author = strip_years(basionym_match[2])
         combination_author = nil if combination_author.blank?
 
         return [basionym_author, basionym_year, combination_author] if basionym_author
@@ -481,8 +512,7 @@ module Vendor
       # Strip any trailing ", YYYY" or " YYYY" from the authorship string.
       # Also strip years embedded inside parenthetical groups, e.g.
       # "(Chatton, 1925)".
-      author = col_authorship
-        .gsub(/,?\s*\b\d{4}\b/, '') # remove ", 1925" and " 1925" occurrences
+      author = strip_years(col_authorship)
         .gsub(/\(\s*\)/, '') # clean up empty parens left behind
         .gsub(/,\s*\z/, '') # strip trailing comma
         .strip
@@ -492,11 +522,7 @@ module Vendor
 
       # If no explicit year was given, extract the last 4-digit year from the
       # string (the combination year, not the basionym year in parentheses).
-      if year.nil?
-        if (m = col_authorship.scan(/\b(\d{4})\b/).last)
-          year = m[0].to_i
-        end
-      end
+      year ||= extract_last_year(col_authorship)
 
       author = nil if author.blank?
       [author, year, nil]

@@ -30,7 +30,7 @@
           <!-- Ancestor rows: distal first (array is proximal→distal, so reversed) -->
           <tr
             v-for="row in ancestorRowsDistalFirst"
-            :key="row.col_name + row.rank"
+            :key="rowKey(row)"
             :class="rowClass(row)"
           >
             <td>
@@ -43,8 +43,8 @@
               <input
                 v-else
                 type="checkbox"
-                :checked="checkedNames.has(row.col_name)"
-                @change="toggleRow(row.col_name)"
+                :checked="checkedNames.has(rowKey(row))"
+                @change="toggleRow(row)"
               />
             </td>
             <td>{{ row.rank }}</td>
@@ -151,12 +151,19 @@ const ancestorRowsDistalFirst = computed(() =>
   [...(ext.value.alignment ?? [])].reverse()
 )
 
-// Set of col_name values the user has checked for creation (match==='none' rows)
+// A nominate/nominotypical subgenus shares its genus's name once extracted
+// (e.g. genus "Homo", subgenus "Homo (Homo)" → col_name "Homo" for both), so
+// col_name alone can't identify a row — scope by rank too.
+function rowKey(row) {
+  return `${row.rank}::${row.col_name}`
+}
+
+// Set of row keys the user has checked for creation (match==='none' rows)
 const checkedNames = ref(
   new Set(
     (ext.value.alignment ?? [])
       .filter((r) => r.match === 'none')
-      .map((r) => r.col_name)
+      .map((r) => rowKey(r))
   )
 )
 
@@ -187,11 +194,12 @@ function clbTaxonUrl(datasetId, taxonId) {
   return `https://www.catalogueoflife.org/data/taxon/${taxonId}`
 }
 
-function toggleRow(colName) {
-  if (checkedNames.value.has(colName)) {
-    checkedNames.value.delete(colName)
+function toggleRow(row) {
+  const key = rowKey(row)
+  if (checkedNames.value.has(key)) {
+    checkedNames.value.delete(key)
   } else {
-    checkedNames.value.add(colName)
+    checkedNames.value.add(key)
   }
   // Force reactivity on Set mutation
   checkedNames.value = new Set(checkedNames.value)
@@ -233,7 +241,7 @@ async function doCreate() {
   const ancestorRows = (ext.value.alignment ?? [])
     .slice()
     .reverse() // distal first
-    .filter((r) => r.match === 'exact' || checkedNames.value.has(r.col_name))
+    .filter((r) => r.match === 'exact' || checkedNames.value.has(rowKey(r)))
     .map((r) => ({
       col_name: r.col_name,
       col_rank: r.rank,

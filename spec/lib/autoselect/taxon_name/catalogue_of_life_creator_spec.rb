@@ -67,6 +67,33 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
       end
     end
 
+    # TaxonNameRelationship::CurrentCombination only validates against ICN
+    # genus/species ranks (see Vendor::Colrapi.split_authorship's TODO), so a
+    # recombined ICZN name gets the parenthesized verbatim_author fix but no
+    # Combination — confirms the two mechanisms don't collide.
+    context 'ICZN (zoological) recombination — no Combination is built' do
+      let(:rows) do
+        [
+          row(col_name: 'Animalia', col_rank: 'kingdom'),
+          row(col_name: 'Anginon',  col_rank: 'genus', col_authorship: 'Raf.'),
+          row(col_name: 'sapiens',  col_rank: 'species',
+              col_authorship: '(Chatton, 1925) Whittaker & Margulis, 1978', col_year: '1978',
+              col_id: 'AnginonSapiensColId', dataset_id: '3LR')
+        ]
+      end
+
+      subject(:result) {
+        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
+      }
+
+      it 'wraps verbatim_author in parens without building a Combination' do
+        result
+        species = ::TaxonName.find_by(name: 'sapiens', project_id:)
+        expect(species.verbatim_author).to eq('(Chatton)')
+        expect(::TaxonNameRelationship::CurrentCombination.where(object_taxon_name: species)).to be_empty
+      end
+    end
+
     context 'ICN (botanical) names — Quercus example' do
       # Representative CoL classification for Quercus robur (English oak), ICN code
       let(:rows) do
@@ -125,6 +152,57 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
         identifier = ::Identifier.where(identifier: expected_uri).first
         expect(identifier).not_to be_nil
         expect(identifier).to be_a(::Identifier::Global::Uri::ChecklistBank)
+      end
+
+      it 'does not build a Combination when the name is in its original combination' do
+        result
+        species = ::TaxonName.find_by(name: 'robur', project_id:)
+        expect(::TaxonNameRelationship::CurrentCombination.where(object_taxon_name: species)).to be_empty
+      end
+    end
+
+    # #5055 TODO follow-up: icn_author_and_year renders recombination via a
+    # Combination + TaxonNameRelationship::CurrentCombination, not by
+    # inspecting verbatim_author for parens (see
+    # Vendor::Colrapi.split_authorship). CoL's combination-author text
+    # (e.g. "Thorne ex Royen") becomes that Combination's verbatim_author.
+    context 'ICN (botanical) recombination — Thornea robur example' do
+      let(:rows) do
+        [
+          row(col_name: 'Plantae', col_rank: 'kingdom'),
+          row(col_name: 'Thornea', col_rank: 'genus', col_authorship: 'Thorne ex Royen'),
+          row(col_name: 'robur',   col_rank: 'species', col_authorship: '(Drude) Thorne ex Royen',
+              col_id: 'ThorneaRoburColId', dataset_id: '3LR')
+        ]
+      end
+
+      subject(:result) {
+        described_class.new(rows:, project_id:, user_id:, col_code: 'botanical').call
+      }
+
+      it 'stores the basionym author, unwrapped, on the Protonym' do
+        result
+        species = ::TaxonName.find_by(name: 'robur', project_id:)
+        expect(species.verbatim_author).to eq('Drude')
+      end
+
+      it 'builds a Combination linking the current genus + species, with the combination author' do
+        result
+        species = ::TaxonName.find_by(name: 'robur', project_id:)
+        current_combination = ::TaxonNameRelationship::CurrentCombination.find_by(object_taxon_name: species)
+        expect(current_combination).not_to be_nil
+
+        combination = current_combination.subject_taxon_name
+        expect(combination).to be_a(::Combination)
+        expect(combination.genus_id).to eq(species.parent_id)
+        expect(combination.species_id).to eq(species.id)
+        expect(combination.verbatim_author).to eq('Thorne ex Royen')
+      end
+
+      it 'renders the correct parenthesized recombination citation' do
+        result
+        species = ::TaxonName.find_by(name: 'robur', project_id:).reload
+        expect(species.cached_author_year).to eq('(Drude) Thorne ex Royen')
       end
     end
 

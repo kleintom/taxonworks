@@ -403,9 +403,9 @@ describe Vendor::Colrapi, type: :model do
       expect(year).to eq(1925)
     end
 
-    it 'returns [nil, nil] for blank authorship' do
-      expect(described_class.split_authorship(nil, nil)).to eq([nil, nil])
-      expect(described_class.split_authorship('', nil)).to  eq([nil, nil])
+    it 'returns [nil, nil, nil] for blank authorship' do
+      expect(described_class.split_authorship(nil, nil)).to eq([nil, nil, nil])
+      expect(described_class.split_authorship('', nil)).to  eq([nil, nil, nil])
     end
 
     # #5055: a recombined ICZN species-group name must render with a
@@ -439,16 +439,45 @@ describe Vendor::Colrapi, type: :model do
       end
     end
 
-    # icn_author_and_year renders recombination via a CurrentCombination
-    # relationship, not by inspecting verbatim_author for parens, so
-    # wrapping here would double up if that relationship is ever built.
-    # Guards the ICZN-only gate above.
-    it 'does not wrap the basionym author in parens for non-zoological codes' do
-      author, year = described_class.split_authorship(
-        '(Drude, 1925) Thorne ex Royen, 1990', '1990', col_code: 'botanical'
-      )
-      expect(author).not_to start_with('(')
-      expect(year).to eq(1990)
+    # Non-ICZN codes (ICN in particular): a Protonym still represents the
+    # original description, so the basionym author/year still wins over
+    # col_year (CoL's combinationAuthorship) here too — but unlike ICZN, the
+    # result is never wrapped in parens. icn_author_and_year instead renders
+    # recombination via a Combination + CurrentCombination relationship, so
+    # split_authorship also returns the trailing combination author
+    # (CatalogueOfLifeCreator uses it to build that Combination for ICN —
+    # see the TODO above for why ICNP/ICVCN can't use the same mechanism).
+    context 'other codes (e.g. botanical/ICN) — basionym still wins, without parens' do
+      it 'extracts the basionym author, without parens, preferring it over col_year, plus the combination author' do
+        author, year, combination_author = described_class.split_authorship(
+          '(Drude, 1925) Thorne ex Royen, 1990', '1990', col_code: 'botanical'
+        )
+        expect(author).to eq('Drude')
+        expect(year).to eq(1925)
+        expect(combination_author).to eq('Thorne ex Royen')
+      end
+
+      it 'falls back to explicit col_year when the basionym parenthetical has no year' do
+        # ICN authorship conventionally omits the year, e.g. "(Drude) Thorne ex Royen".
+        author, year, combination_author = described_class.split_authorship(
+          '(Drude) Thorne ex Royen', '1990', col_code: 'botanical'
+        )
+        expect(author).to eq('Drude')
+        expect(year).to eq(1990)
+        expect(combination_author).to eq('Thorne ex Royen')
+      end
+
+      it 'returns a nil year when neither the parenthetical nor col_year carries one' do
+        author, year, combination_author = described_class.split_authorship('(Drude) Thorne ex Royen', nil, col_code: 'botanical')
+        expect(author).to eq('Drude')
+        expect(year).to be_nil
+        expect(combination_author).to eq('Thorne ex Royen')
+      end
+
+      it 'returns a nil combination_author for a name in its original combination' do
+        _author, _year, combination_author = described_class.split_authorship('L., 1753', nil, col_code: 'botanical')
+        expect(combination_author).to be_nil
+      end
     end
   end
 

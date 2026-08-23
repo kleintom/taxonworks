@@ -290,62 +290,29 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
     end
   end
 
+  # Full behavior coverage for rank resolution lives in Vendor::Colrapi's own
+  # specs (.rank_class_for); this only confirms the delegate wiring, i.e.
+  # that @col_code is threaded through.
   describe '#resolve_rank_class' do
-    # resolve_rank_class returns the String rank_class value from the lookup hashes.
-    it 'resolves species as ICN for botanical code' do
-      creator = described_class.new(rows: [], project_id:, user_id:, col_code: 'botanical')
-      result  = creator.send(:resolve_rank_class, 'species')
-      expect(result).to include('Icn')
-      expect(result).not_to include('Iczn')
-    end
-
-    it 'resolves species as ICZN for zoological code' do
+    it 'delegates to Vendor::Colrapi.rank_class_for with @col_code' do
       creator = described_class.new(rows: [], project_id:, user_id:, col_code: 'zoological')
-      result  = creator.send(:resolve_rank_class, 'species')
-      expect(result).to include('Iczn')
-      expect(result).not_to include('::Icn::')
-    end
-
-    it 'resolves genus as ICNP for bacterial code' do
-      creator = described_class.new(rows: [], project_id:, user_id:, col_code: 'bacterial')
-      result  = creator.send(:resolve_rank_class, 'genus')
-      expect(result).to include('Icnp')
-    end
-
-    it 'returns nil for unknown rank' do
-      creator = described_class.new(rows: [], project_id:, user_id:)
-      expect(creator.send(:resolve_rank_class, 'domain')).to be_nil
-    end
-
-    it 'returns nil for blank rank' do
-      creator = described_class.new(rows: [], project_id:, user_id:)
-      expect(creator.send(:resolve_rank_class, '')).to be_nil
+      expect(::Vendor::Colrapi).to receive(:rank_class_for).with('species', 'zoological').and_call_original
+      expect(creator.send(:resolve_rank_class, 'species')).to include('Iczn')
     end
   end
 
+  # Full behavior coverage for authorship parsing lives in Vendor::Colrapi's
+  # own specs (.split_authorship); this only confirms the delegate wiring,
+  # i.e. that @col_code is threaded through.
   describe '#split_authorship' do
-    subject(:creator) { described_class.new(rows: [], project_id:, user_id:) }
-
-    it 'splits "Linnaeus, 1758" into author and year' do
-      author, year = creator.send(:split_authorship, 'Linnaeus, 1758', nil)
-      expect(author).to eq('Linnaeus')
-      expect(year).to eq(1758)
-    end
-
-    it 'prefers explicit col_year over extracted year' do
-      _author, year = creator.send(:split_authorship, 'L., 1753', '1753')
-      expect(year).to eq(1753)
-    end
-
-    it 'handles parenthetical basionym authorship "(Chatton, 1925) Whittaker & Margulis, 1978"' do
-      author, year = creator.send(:split_authorship, '(Chatton, 1925) Whittaker & Margulis, 1978', nil) # Year would not be picked up in the Eukaryota case as presently defined
-      expect(author).to eq('Chatton')
+    it 'delegates to Vendor::Colrapi.split_authorship with @col_code' do
+      creator = described_class.new(rows: [], project_id:, user_id:, col_code: 'zoological')
+      expect(::Vendor::Colrapi).to receive(:split_authorship)
+        .with('(Chatton, 1925) Whittaker & Margulis, 1978', nil, col_code: 'zoological')
+        .and_call_original
+      author, year = creator.send(:split_authorship, '(Chatton, 1925) Whittaker & Margulis, 1978', nil)
+      expect(author).to eq('(Chatton)')
       expect(year).to eq(1925)
-    end
-
-    it 'returns [nil, nil] for blank authorship' do
-      expect(creator.send(:split_authorship, nil, nil)).to eq([nil, nil])
-      expect(creator.send(:split_authorship, '', nil)).to  eq([nil, nil])
     end
   end
 end

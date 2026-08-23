@@ -71,7 +71,8 @@ module Autoselect
             # CoL-only ranks like 'domain').
             next if rank_class.nil?
 
-            author, year = split_authorship(row[:col_authorship], row[:col_year])
+            author, year =
+              split_authorship(row[:col_authorship], row[:col_year])
 
             begin
               tn = ::TaxonName.create!(
@@ -162,7 +163,6 @@ module Autoselect
         )
       end
 
-
       # Maps a human-readable CoL rank string to a TaxonWorks rank_class
       # string, using @col_code as the primary code and falling back
       # through the rest so that any rank resolves if possible. Returns nil
@@ -172,9 +172,9 @@ module Autoselect
       end
 
       # Splits a CoL authorship string into
-      # [verbatim_author, year_of_publication]. See Vendor::Colrapi.split_authorship.
+      # [verbatim_author, year_of_publication].
       def split_authorship(col_authorship, col_year)
-        ::Vendor::Colrapi.split_authorship(col_authorship, col_year)
+        ::Vendor::Colrapi.split_authorship(col_authorship, col_year, col_code: @col_code)
       end
 
     end

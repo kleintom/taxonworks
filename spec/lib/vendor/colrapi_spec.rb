@@ -53,8 +53,6 @@ end
 
 describe Vendor::Colrapi, type: :model do
 
-  # ── search ────────────────────────────────────────────────────────────────────
-
   describe '.search' do
     context 'when Colrapi returns results' do
       before do
@@ -94,8 +92,6 @@ describe Vendor::Colrapi, type: :model do
       end
     end
   end
-
-  # ── ancestors ─────────────────────────────────────────────────────────────────
 
   describe '.ancestors' do
     let(:classification) {
@@ -150,8 +146,6 @@ describe Vendor::Colrapi, type: :model do
       end
     end
   end
-
-  # ── build_extension ───────────────────────────────────────────────────────────
 
   describe '.build_extension' do
     let(:col_result) { col_nameusage_result }
@@ -330,8 +324,6 @@ describe Vendor::Colrapi, type: :model do
     end
   end
 
-  # ── col_backbone_dataset? ────────────────────────────────────────────────────
-
   describe '.col_backbone_dataset?' do
     it 'returns true for the main CoL dataset' do
       expect(described_class.col_backbone_dataset?('3LR')).to be true
@@ -350,7 +342,115 @@ describe Vendor::Colrapi, type: :model do
     end
   end
 
-  # ── ancestors_via_parent_id ──────────────────────────────────────────────────
+  describe '.rank_class_for' do
+    it 'resolves species as ICN for botanical code' do
+      result = described_class.rank_class_for('species', 'botanical')
+      expect(result).to include('Icn')
+      expect(result).not_to include('Iczn')
+    end
+
+    it 'resolves species as ICZN for zoological code' do
+      result = described_class.rank_class_for('species', 'zoological')
+      expect(result).to include('Iczn')
+      expect(result).not_to include('::Icn::')
+    end
+
+    it 'resolves genus as ICNP for bacterial code' do
+      result = described_class.rank_class_for('genus', 'bacterial')
+      expect(result).to include('Icnp')
+    end
+
+    it 'returns nil for unknown rank' do
+      expect(described_class.rank_class_for('domain', 'zoological')).to be_nil
+    end
+
+    it 'returns nil for blank rank' do
+      expect(described_class.rank_class_for('', 'zoological')).to be_nil
+    end
+
+    context 'fallback_strategy: :try_all_codes (the default)' do
+      it 'falls back through every code when col_code is unrecognized' do
+        # 'variety' exists only in ICN_LOOKUP. col_code has no primary
+        # lookup, so this only resolves by trying every code in turn.
+        expect(ICZN_LOOKUP).not_to have_key('variety')
+        expect(described_class.rank_class_for('variety', 'martian')).to eq(ICN_LOOKUP['variety'])
+      end
+    end
+
+    context 'fallback_strategy: :default_iczn' do
+      it 'only tries ICZN, without falling back to the other codes' do
+        result = described_class.rank_class_for('variety', 'martian', fallback_strategy: :default_iczn)
+        expect(result).to be_nil
+      end
+    end
+  end
+
+  describe '.split_authorship' do
+    it 'splits "Linnaeus, 1758" into author and year' do
+      author, year = described_class.split_authorship('Linnaeus, 1758', nil)
+      expect(author).to eq('Linnaeus')
+      expect(year).to eq(1758)
+    end
+
+    it 'prefers explicit col_year over extracted year' do
+      _author, year = described_class.split_authorship('L., 1753', '1900')
+      expect(year).to eq(1900)
+    end
+
+    it 'extracts the basionym author and year from parenthetical authorship when no col_code is given' do
+      author, year = described_class.split_authorship('(Chatton, 1925) Whittaker & Margulis, 1978', nil)
+      expect(author).to eq('Chatton')
+      expect(year).to eq(1925)
+    end
+
+    it 'returns [nil, nil] for blank authorship' do
+      expect(described_class.split_authorship(nil, nil)).to eq([nil, nil])
+      expect(described_class.split_authorship('', nil)).to  eq([nil, nil])
+    end
+
+    # #5055: a recombined ICZN species-group name must render with a
+    # parenthesized author. TaxonName#iczn_author_and_year detects this by
+    # checking whether verbatim_author is already wrapped in parens
+    # (Protonym's "workaround until basionym field exists"), so for
+    # col_code: 'zoological' the basionym always wins — even over an
+    # explicit col_year (the combination's own year) — and the returned
+    # author is parenthesized.
+    context 'col_code: zoological (ICZN)' do
+      it 'wraps the basionym author in parens' do
+        author, year = described_class.split_authorship(
+          '(Chatton, 1925) Whittaker & Margulis, 1978', nil, col_code: 'zoological'
+        )
+        expect(author).to eq('(Chatton)')
+        expect(year).to eq(1925)
+      end
+
+      it 'prefers the basionym over an explicit col_year (the combination authorship year)' do
+        author, year = described_class.split_authorship(
+          '(Chatton, 1925) Whittaker & Margulis, 1978', '1978', col_code: 'zoological'
+        )
+        expect(author).to eq('(Chatton)')
+        expect(year).to eq(1925)
+      end
+
+      it 'does not add parens for a name in its original combination' do
+        author, year = described_class.split_authorship('Linnaeus, 1758', nil, col_code: 'zoological')
+        expect(author).to eq('Linnaeus')
+        expect(year).to eq(1758)
+      end
+    end
+
+    # icn_author_and_year renders recombination via a CurrentCombination
+    # relationship, not by inspecting verbatim_author for parens, so
+    # wrapping here would double up if that relationship is ever built.
+    # Guards the ICZN-only gate above.
+    it 'does not wrap the basionym author in parens for non-zoological codes' do
+      author, year = described_class.split_authorship(
+        '(Drude, 1925) Thorne ex Royen, 1990', '1990', col_code: 'botanical'
+      )
+      expect(author).not_to start_with('(')
+      expect(year).to eq(1990)
+    end
+  end
 
   describe '.ancestors_via_parent_id' do
     # Species → genus → family chain, family has no parent (chain stops)
@@ -414,8 +514,6 @@ describe Vendor::Colrapi, type: :model do
     end
 
   end
-
-  # ── VCR integration ──────────────────────────────────────────────────────────
 
   context 'VCR integration — Mammal Diversity Database (dataset 9802)' do
     it 'retrieves real ancestors for Mus musculus via parentId traversal' do

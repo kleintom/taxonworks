@@ -420,27 +420,35 @@ module Vendor
     #     author "Chatton", year 1925 (basionym takes precedence when no
     #     explicit col_year is given)
     #
-    # An explicit col_year (from the target row's combinationAuthorship.year)
-    # takes precedence. If no year can be extracted the author string is
-    # returned as-is with year nil.
+    # TODO: recombined ICN/ICNP/ICVCN names import without parenthesized
+    # authorship. Fixing that requires this creator to also build a Combination
+    # record plus a TaxonNameRelationship::CurrentCombination linking it to the
+    # basionym Protonym.
     #
     # @param col_authorship [String, nil]
     # @param col_year [String, nil]
+    # @param col_code [String, nil] see code_lookup_map
     # @return [Array(String, Integer), Array(nil, nil)]
-    def self.split_authorship(col_authorship, col_year)
+    def self.split_authorship(col_authorship, col_year, col_code: nil)
       return [nil, nil] if col_authorship.blank?
 
-      # Prefer the explicit year already extracted server-side (present for
-      # the target row).
+      basionym_match = col_authorship.match(/\A\(([^)]+),\s*(\d{4})\)/)
+
+      if col_code == 'zoological' && basionym_match
+        basionym_author = basionym_match[1].gsub(/,?\s*\b\d{4}\b/, '').strip
+        basionym_author = basionym_author.blank? ? nil : "(#{basionym_author})"
+        return [basionym_author, basionym_match[2].to_i]
+      end
+
       year = col_year.presence&.to_i
 
       # When authorship leads with "(Basionym Author, YYYY)" and no explicit
       # year was supplied, take author and year from the basionym
       # parenthetical — not the trailing combination authorship.
-      if year.nil? && (m = col_authorship.match(/\A\(([^)]+),\s*(\d{4})\)/))
-        basionym_author = m[1].gsub(/,?\s*\b\d{4}\b/, '').strip
+      if year.nil? && basionym_match
+        basionym_author = basionym_match[1].gsub(/,?\s*\b\d{4}\b/, '').strip
         basionym_author = nil if basionym_author.blank?
-        return [basionym_author, m[2].to_i]
+        return [basionym_author, basionym_match[2].to_i]
       end
 
       # Strip any trailing ", YYYY" or " YYYY" from the authorship string.

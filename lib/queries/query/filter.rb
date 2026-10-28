@@ -21,22 +21,43 @@ module Queries
     # include Queries::Concerns::Identifiers # Presently in Queries for other use in autocompletes
 
     #
-    # !! SUBQUERIES is cross-referenced in app/javascript/vue/components/radials/filter/links/*.js models.
-    # !! When you add a reference here, ensure corresponding js model is aligned. There are tests that will catch if they are not.
+    # Registry of nested filters. Each key is a filter, each value lists the
+    # filters whose results it accepts as a scope. For example
     #
-    # For example:
-    # https://github.com/SpeciesFileGroup/taxonworks/app/javascript/vue/components/radials/filter/constants/queryParam.js
-    # https://github.com/SpeciesFileGroup/taxonworks/app/javascript/vue/components/radials/filter/constants/filterLinks.js
-    # https://github.com/SpeciesFileGroup/taxonworks/app/javascript/vue/components/radials/filter/links/CollectionObject.js
+    #   loan: [:collection_object, :otu]
     #
-    # You may also need a reference in
-    # app/javascript/vue/routes/routes.js
-    # app/javascript/vue/components/radials/linker/links
+    # lets the Loan filter take `collection_object_query: {...}` or
+    # `otu_query: {...}` and return the loans of the matching collection
+    # objects / OTUs. Registering an entry:
+    #   - permits the nested params (see #permitted_params)
+    #   - builds the nested filter (see #set_nested_queries)
     #
-    # This is read as  :to <- [:from1, from2...] ].
+    # !! A nested `<model>_query` that is not registered for that filter is
+    # !! silently ignored, i.e. the filter runs WITHOUT that scope. For a
+    # !! read that means too many results; for a batch update it means
+    # !! updating records outside the intended set.
     #
-    # !! If you add a `def <model>_query_facet`` to a filter you will get warnings if that
-    # !! model is not referencened in this constant.
+    # Two kinds of entries:
+    #
+    # 1) Filters with a Filter task (UI). These drive the radial filter
+    #    "funnel" and must be mirrored in
+    #      app/javascript/vue/components/radials/filter/links/*.js
+    #    (spec/lib/queries/query/filter_spec.rb checks this). See also
+    #      app/javascript/vue/components/radials/filter/constants/queryParam.js
+    #      app/javascript/vue/components/radials/filter/constants/filterLinks.js
+    #    and possibly
+    #      app/javascript/vue/routes/routes.js
+    #      app/javascript/vue/components/radials/linker/links
+    #
+    # 2) Internal-only filters with no Filter task (e.g. :data_attribute,
+    #    :depiction, :controlled_vocabulary_term). Used by other code, not
+    #    the funnel, and skipped by the JS links spec.
+    #    !! :data_attribute must include every model that has data attributes,
+    #    !! it scopes the data attribute batch annotator
+    #    !! (see spec/lib/queries/data_attribute/filter_spec.rb).
+    #
+    # !! If you add a `def <model>_query_facet` to a filter you will get
+    # !! spec failures if that model is not referenced here.
     #
     SUBQUERIES = {
       anatomical_part: [:collection_object, :field_occurrence, :otu, :observation, :extract, :sound, :biological_association],
@@ -569,6 +590,14 @@ module Queries
         if n = q.annotator_params
           p.last.merge!(n.pop)
           p = n + p
+        end
+
+        # Exclusions apply at every nesting level, not just the top
+        if api
+          q.api_excluded_params.each do |e|
+            p.delete_if{|k,v| e == k}
+            p.last.delete_if{|k,v| e == k }
+          end
         end
 
         c[a] = p

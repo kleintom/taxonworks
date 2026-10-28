@@ -70,16 +70,12 @@ A filter accepts the results of another filter as a scope via a nested
 When code builds `<model>_query` for models it doesn't name explicitly
 (from a constant, a derived list, or another filter's `query_name`), add a
 spec that every model it can produce is registered for the target filter.
-Derive that set from the models themselves where possible, so a newly added
-model fails the spec until it is registered. Existing examples:
-
+If you can derive that set from the models themselves, add a spec, so a newly
+added model fails the spec until it is registered - that means the difference 
+between a CI and a runtime error. See, e.g.:
 * `InternalAttribute.update_value` nests any filter under `data_attribute`:
   `spec/lib/queries/data_attribute/filter_spec.rb` (every model with data
   attributes)
-* `Queries::DwcOccurrence::Filter` nests `OCCURRENCE_SOURCES`:
-  `spec/lib/queries/dwc_occurrence/filter_spec.rb`
-* `ObservationMatrix#batch_populate` nests `observation_query` under every
-  `OBSERVABLE_TYPES` filter: `spec/models/observation_matrix_spec.rb`
 
 ## Autocomplete
 TODO:

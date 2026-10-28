@@ -130,7 +130,9 @@ module Queries
       end
 
       def merge_clauses
-        ::Queries::Query::Filter::SUBQUERIES[:data_attribute].collect{|m| from_filter_facet(send("#{m}_query"), project_id)}
+        ::Queries::Query::Filter::SUBQUERIES[:data_attribute].collect { |m|
+          from_filter_facet(send("#{m}_query"), project_id)
+        }
       end
 
       def and_clauses

@@ -9,6 +9,17 @@ describe Queries::DwcOccurrence::Filter, type: :model, group: [:dwc_occurrence] 
     expect(Queries::DwcOccurrence::Filter.new({})).to be_truthy
   end
 
+  # #taxon_name_id_facet nests a `<source>_query: { taxon_name_query: ... }`
+  # for every OCCURRENCE_SOURCES entry, all of which must be registered.
+  specify 'OCCURRENCE_SOURCES are registered nested queries' do
+    sources = Queries::DwcOccurrence::Filter::OCCURRENCE_SOURCES.map(&:to_sym)
+
+    expect(::Queries::Query::Filter::SUBQUERIES[:dwc_occurrence]).to include(*sources)
+    sources.each do |s|
+      expect(::Queries::Query::Filter::SUBQUERIES[s]).to include(:taxon_name)
+    end
+  end
+
   specify '#collection_object_query' do
     a = Specimen.create!
     Specimen.create!

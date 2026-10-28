@@ -18,6 +18,29 @@ RSpec.describe ObservationMatrix, type: :model, group: :observation_matrix do
     expect(r[:rows]).to eq(3)
   end
 
+  # #batch_populate nests an observation_query under the filter of every
+  # observable type, all of which must be registered.
+  specify 'every OBSERVABLE_TYPES filter accepts an observation_query' do
+    OBSERVABLE_TYPES.each do |t|
+      expect(::Queries::Query::Filter::SUBQUERIES[t.underscore.to_sym]).to include(:observation), t
+    end
+  end
+
+  specify '#batch_create observation_query' do
+    o = FactoryBot.create(:valid_observation_working, observation_object: otu)
+    o2 = FactoryBot.create(:valid_observation_working, observation_object: collection_object)
+    FactoryBot.create(:valid_observation_working) # not in the query
+
+    p = ActionController::Parameters.new(
+      { observation_matrix: {name: 'Q'},
+        observation_query: {observation_id: [o.id, o2.id]}
+      })
+
+    r = ObservationMatrix.batch_create(p)
+    expect(r[:rows]).to eq(2)
+    expect(r[:columns]).to eq(2)
+  end
+
   specify '#batch_add otu_query' do
     %w{a ab ac}.collect{|name| Otu.create!(name:)}
     p = ActionController::Parameters.new(

@@ -55,7 +55,7 @@ describe InternalAttribute, type: :model do
     expect([a.value, b.value]).to eq(['22', b.value])
   end
 
-  context '.batch_update_or_create on a filter not supported as a DataAttribute subquery' do
+  context '.batch_update_or_create on a Source filter' do
     let(:source_in_scope) { FactoryBot.create(:valid_source_bibtex) }
     let(:source_out_of_scope) { FactoryBot.create(:valid_source_bibtex) }
     let(:otu_out_of_scope) { FactoryBot.create(:valid_otu) }

@@ -53,6 +53,34 @@ def citations_facet
 end
 ```
 
+### Nested queries (`<model>_query`)
+A filter accepts the results of another filter as a scope via a nested
+`<model>_query` param, registered in `Queries::Query::Filter::SUBQUERIES`
+(see the comment there).
+
+* An unregistered nested query, or more than one at the same level, raises
+  `TaxonWorks::Error::NestedQuery` (a 400 for JSON requests). Never rescue or
+  skip it: an ignored scope runs the filter without it, e.g. a batch update
+  touching records outside the intended set.
+* Every registered pair must be applied in the filter's `and`/`merge`
+  clauses. `spec/lib/queries/query/filter_spec.rb` checks this for all pairs.
+* `api_except_params` are removed at every nesting level, not just the top.
+
+#### Building a nested query for a model chosen at runtime
+When code builds `<model>_query` for models it doesn't name explicitly
+(from a constant, a derived list, or another filter's `query_name`), add a
+spec that every model it can produce is registered for the target filter.
+Derive that set from the models themselves where possible, so a newly added
+model fails the spec until it is registered. Existing examples:
+
+* `InternalAttribute.update_value` nests any filter under `data_attribute`:
+  `spec/lib/queries/data_attribute/filter_spec.rb` (every model with data
+  attributes)
+* `Queries::DwcOccurrence::Filter` nests `OCCURRENCE_SOURCES`:
+  `spec/lib/queries/dwc_occurrence/filter_spec.rb`
+* `ObservationMatrix#batch_populate` nests `observation_query` under every
+  `OBSERVABLE_TYPES` filter: `spec/models/observation_matrix_spec.rb`
+
 ## Autocomplete
 TODO:
 

@@ -448,6 +448,22 @@ describe Queries::Query::Filter, type: [:model] do
     end
   end
 
+  # Check that every registered nested query is actually applied, not just
+  # permitted and built. The nested filter's distinctive id must reach the
+  # outer filter's SQL, otherwise its scope is silently dropped.
+  context 'SUBQUERY reference is applied by the filter' do
+    marker = 987654321
+    ::Queries::Query::Filter::SUBQUERIES.each do |k, v|
+      f = ::Queries::Query::Filter::FILTER_QUERIES[(k.to_s + '_query').to_sym].constantize
+      v.each do |t|
+        specify "#{f.name}: #{t}" do
+          q = f.new((t.to_s + '_query').to_sym => { (t.to_s + '_id').to_sym => [marker] })
+          expect(q.all.to_sql).to include(marker.to_s)
+        end
+      end
+    end
+  end
+
   # Check that the query methods in filters have
   # corresponding references in SUBQUERY
   # Inverse of above

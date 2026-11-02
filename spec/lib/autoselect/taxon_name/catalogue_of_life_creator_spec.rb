@@ -67,19 +67,15 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
       end
     end
 
-    # TaxonNameRelationship::CurrentCombination only validates against ICN
-    # genus/species ranks (see
-    # Vendor::Colrapi::NameTranslation.split_authorship's TODO), so a
-    # recombined ICZN name gets the parenthesized verbatim_author fix but no
-    # Combination — confirms the two mechanisms don't collide.
-    context 'ICZN (zoological) recombination — no Combination is built' do
+    context 'ICZN (zoological) recombination' do
       let(:rows) do
         [
           row(col_name: 'Animalia', col_rank: 'kingdom'),
-          row(col_name: 'Anginon',  col_rank: 'genus', col_authorship: 'Raf.'),
-          row(col_name: 'sapiens',  col_rank: 'species',
-              col_authorship: '(Chatton, 1925) Whittaker & Margulis, 1978', col_year: '1978',
-              col_id: 'AnginonSapiensColId', dataset_id: '3LR')
+          row(col_name: 'Panthera', col_rank: 'genus',
+              col_authorship: 'Oken, 1816'),
+          row(col_name: 'leo', col_rank: 'species',
+              col_authorship: '(Linnaeus, 1758)', col_id: '4CGXP',
+              dataset_id: '3LR')
         ]
       end
 
@@ -87,11 +83,17 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
         described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
       }
 
-      it 'wraps verbatim_author in parens without building a Combination' do
+      it 'wraps the basionym author in parens on verbatim_author' do
         result
-        species = ::TaxonName.find_by(name: 'sapiens', project_id:)
-        expect(species.verbatim_author).to eq('(Chatton)')
-        expect(::TaxonNameRelationship::CurrentCombination.where(object_taxon_name: species)).to be_empty
+        species = ::TaxonName.find_by(name: 'leo', project_id:)
+        expect(species.verbatim_author).to eq('(Linnaeus)')
+        expect(species.year_of_publication).to eq(1758)
+      end
+
+      it 'renders the parenthesized citation' do
+        result
+        species = ::TaxonName.find_by(name: 'leo', project_id:).reload
+        expect(species.cached_author_year).to eq('(Linnaeus, 1758)')
       end
     end
 
@@ -154,27 +156,18 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
         expect(identifier).not_to be_nil
         expect(identifier).to be_a(::Identifier::Global::Uri::ChecklistBank)
       end
-
-      it 'does not build a Combination when the name is in its original combination' do
-        result
-        species = ::TaxonName.find_by(name: 'robur', project_id:)
-        expect(::TaxonNameRelationship::CurrentCombination.where(object_taxon_name: species)).to be_empty
-      end
     end
 
-    # #5055 TODO follow-up: icn_author_and_year renders recombination via a
-    # Combination + TaxonNameRelationship::CurrentCombination, not by
-    # inspecting verbatim_author for parens (see
-    # Vendor::Colrapi::NameTranslation.split_authorship). CoL's
-    # combination-author text (e.g. "Thorne ex Royen") becomes that
-    # Combination's verbatim_author.
-    context 'ICN (botanical) recombination — Thornea robur example' do
+    # ICN keeps the whole citation, parens included, on verbatim_author (see
+    # Vendor::Colrapi::NameTranslation.split_authorship).
+    context 'ICN (botanical) recombination — Picea glauca example' do
       let(:rows) do
         [
           row(col_name: 'Plantae', col_rank: 'kingdom'),
-          row(col_name: 'Thornea', col_rank: 'genus', col_authorship: 'Thorne ex Royen'),
-          row(col_name: 'robur',   col_rank: 'species', col_authorship: '(Drude) Thorne ex Royen',
-              col_id: 'ThorneaRoburColId', dataset_id: '3LR')
+          row(col_name: 'Picea', col_rank: 'genus', col_authorship: 'A.Dietr.'),
+          row(col_name: 'glauca', col_rank: 'species',
+              col_authorship: '(Moench) Voss', col_id: '4HQ2V',
+              dataset_id: '3LR')
         ]
       end
 
@@ -182,29 +175,52 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
         described_class.new(rows:, project_id:, user_id:, col_code: 'botanical').call
       }
 
-      it 'stores the basionym author, unwrapped, on the Protonym' do
+      it 'stores the whole parenthesized citation on verbatim_author' do
         result
-        species = ::TaxonName.find_by(name: 'robur', project_id:)
-        expect(species.verbatim_author).to eq('Drude')
+        species = ::TaxonName.find_by(name: 'glauca', project_id:)
+        expect(species.verbatim_author).to eq('(Moench) Voss')
       end
 
-      it 'builds a Combination linking the current genus + species, with the combination author' do
+      it 'does not build a Combination' do
         result
-        species = ::TaxonName.find_by(name: 'robur', project_id:)
-        current_combination = ::TaxonNameRelationship::CurrentCombination.find_by(object_taxon_name: species)
-        expect(current_combination).not_to be_nil
-
-        combination = current_combination.subject_taxon_name
-        expect(combination).to be_a(::Combination)
-        expect(combination.genus_id).to eq(species.parent_id)
-        expect(combination.species_id).to eq(species.id)
-        expect(combination.verbatim_author).to eq('Thorne ex Royen')
+        species = ::TaxonName.find_by(name: 'glauca', project_id:)
+        expect(
+          ::TaxonNameRelationship::CurrentCombination
+            .where(object_taxon_name: species)
+        ).to be_empty
       end
 
       it 'renders the correct parenthesized recombination citation' do
         result
-        species = ::TaxonName.find_by(name: 'robur', project_id:).reload
-        expect(species.cached_author_year).to eq('(Drude) Thorne ex Royen')
+        species = ::TaxonName.find_by(name: 'glauca', project_id:).reload
+        expect(species.cached_author_year).to eq('(Moench) Voss')
+      end
+    end
+
+    # See the ICNP TODO on Vendor::Colrapi::NameTranslation.split_authorship.
+    context 'ICNP (bacterial) recombination — Escherichia coli example' do
+      let(:rows) do
+        [
+          row(col_name: 'Pseudomonadati', col_rank: 'kingdom'),
+          row(col_name: 'Escherichia', col_rank: 'genus',
+              col_authorship: 'Castellani & Chalmers, 1919 (Approved Lists 1980)'),
+          row(col_name: 'coli', col_rank: 'species',
+              col_authorship:
+                '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
+              col_year: '1919', col_id: 'CS33N', dataset_id: '3LR')
+        ]
+      end
+
+      subject(:result) {
+        described_class.new(rows:, project_id:, user_id:, col_code: 'bacterial')
+          .call
+      }
+
+      xit 'stores the whole parenthesized citation on verbatim_author' do
+        result
+        species = ::TaxonName.find_by(name: 'coli', project_id:)
+        expect(species.verbatim_author).to eq('(Migula) Castellani & Chalmers')
+        expect(species.year_of_publication).to eq(1895)
       end
     end
 
@@ -645,14 +661,11 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
         rows: [], project_id:, user_id:, col_code: 'zoological'
       )
       expect(::Vendor::Colrapi::NameTranslation).to receive(:split_authorship)
-        .with(
-          '(Chatton, 1925) Whittaker & Margulis, 1978', nil,
-          col_code: 'zoological'
-        )
+        .with('(Linnaeus, 1758)', nil, col_code: 'zoological')
         .and_call_original
-      author, year = creator.send(:split_authorship, '(Chatton, 1925) Whittaker & Margulis, 1978', nil)
-      expect(author).to eq('(Chatton)')
-      expect(year).to eq(1925)
+      expect(
+        creator.send(:split_authorship, '(Linnaeus, 1758)', nil)
+      ).to eq(['(Linnaeus)', 1758])
     end
   end
 end

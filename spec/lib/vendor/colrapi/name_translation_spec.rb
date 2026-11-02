@@ -63,10 +63,11 @@ describe Vendor::Colrapi::NameTranslation, type: :model do
     end
   end
 
+  # Authorship strings are CoL's (dataset 3LR, 2026-11) for the name noted.
   context '.split_authorship' do
     specify 'splits "Linnaeus, 1758" into author and year' do
       expect(t.split_authorship('Linnaeus, 1758', nil))
-        .to eq(['Linnaeus', 1758, nil])
+        .to eq(['Linnaeus', 1758])
     end
 
     specify 'prefers an explicit col_year over the extracted year' do
@@ -74,101 +75,88 @@ describe Vendor::Colrapi::NameTranslation, type: :model do
       expect(year).to eq(1900)
     end
 
-    specify 'takes the basionym author and year from "(Chatton, 1925) ' \
-      'Whittaker & Margulis, 1978" when no col_code is given' do
-      author, year = t.split_authorship(
-        '(Chatton, 1925) Whittaker & Margulis, 1978', nil
-      )
-      expect(author).to eq('Chatton')
-      expect(year).to eq(1925)
+    # Eukaryota
+    specify 'takes the basionym author and year when no col_code is given' do
+      expect(
+        t.split_authorship('(Chatton, 1925) Whittaker & Margulis, 1978', nil)
+      ).to eq(['Chatton', 1925])
     end
 
-    specify 'blank authorship is [nil, nil, nil]' do
-      expect(t.split_authorship(nil, nil)).to eq([nil, nil, nil])
-      expect(t.split_authorship('', nil)).to eq([nil, nil, nil])
+    specify 'blank authorship is [nil, nil]' do
+      expect(t.split_authorship(nil, nil)).to eq([nil, nil])
+      expect(t.split_authorship('', nil)).to eq([nil, nil])
     end
 
-    # A recombined ICZN species-group name must render with a parenthesized
-    # author. TaxonName#iczn_author_and_year detects this by checking whether
-    # verbatim_author is already wrapped in parens (Protonym's "workaround
-    # until basionym field exists"), so for col_code: 'zoological' the
-    # basionym always wins — even over an explicit col_year (the
-    # combination's own year) — and the returned author is parenthesized.
+    # TaxonName#iczn_author_and_year treats a parenthesized verbatim_author
+    # as the signal that a Protonym isn't in its original combination.
     context 'col_code: zoological (ICZN)' do
+      # Panthera leo
       specify 'wraps the basionym author in parens' do
-        author, year = t.split_authorship(
-          '(Chatton, 1925) Whittaker & Margulis, 1978', nil,
-          col_code: 'zoological'
-        )
-        expect(author).to eq('(Chatton)')
-        expect(year).to eq(1925)
+        expect(
+          t.split_authorship('(Linnaeus, 1758)', nil, col_code: 'zoological')
+        ).to eq(['(Linnaeus)', 1758])
       end
 
-      specify 'prefers the basionym over an explicit col_year (the ' \
-        'combination authorship year)' do
-        author, year = t.split_authorship(
-          '(Chatton, 1925) Whittaker & Margulis, 1978', '1978',
-          col_code: 'zoological'
-        )
-        expect(author).to eq('(Chatton)')
-        expect(year).to eq(1925)
+      specify 'prefers the basionym year over an explicit col_year' do
+        expect(
+          t.split_authorship('(Linnaeus, 1758)', '1900', col_code: 'zoological')
+        ).to eq(['(Linnaeus)', 1758])
       end
 
       specify 'does not add parens for a name in its original combination' do
-        author, year = t.split_authorship(
-          'Linnaeus, 1758', nil, col_code: 'zoological'
-        )
-        expect(author).to eq('Linnaeus')
-        expect(year).to eq(1758)
+        expect(
+          t.split_authorship('Linnaeus, 1758', nil, col_code: 'zoological')
+        ).to eq(['Linnaeus', 1758])
       end
     end
 
-    # Non-ICZN codes (ICN in particular): a Protonym still represents the
-    # original description, so the basionym author/year still wins over
-    # col_year (CoL's combinationAuthorship) here too — but unlike ICZN, the
-    # result is never wrapped in parens. icn_author_and_year instead renders
-    # recombination via a Combination + CurrentCombination relationship, so
-    # split_authorship also returns the trailing combination author
-    # (CatalogueOfLifeCreator uses it to build that Combination for ICN — see
-    # split_authorship's TODO for why ICNP/ICVCN can't use the same
-    # mechanism).
-    context 'other codes (e.g. botanical/ICN)' do
-      specify 'takes the basionym author, without parens, over col_year, ' \
-        'plus the combination author' do
+    # TaxonName#icn_author_and_year renders verbatim_author as-is, and
+    # Protonym's closed-parens validation exempts ICN.
+    context 'col_code: botanical (ICN)' do
+      # Picea glauca
+      specify 'keeps the whole parenthesized citation' do
         expect(
-          t.split_authorship(
-            '(Drude, 1925) Thorne ex Royen, 1990', '1990',
-            col_code: 'botanical'
-          )
-        ).to eq(['Drude', 1925, 'Thorne ex Royen'])
+          t.split_authorship('(Moench) Voss', nil, col_code: 'botanical')
+        ).to eq(['(Moench) Voss', nil])
       end
 
-      # ICN authorship conventionally omits the year, e.g.
-      # "(Drude) Thorne ex Royen".
+      # ICN authorship conventionally omits the year.
       specify 'falls back to col_year when the basionym parenthetical has ' \
         'no year' do
         expect(
-          t.split_authorship(
-            '(Drude) Thorne ex Royen', '1990', col_code: 'botanical'
-          )
-        ).to eq(['Drude', 1990, 'Thorne ex Royen'])
+          t.split_authorship('(Moench) Voss', '1890', col_code: 'botanical')
+        ).to eq(['(Moench) Voss', 1890])
       end
 
-      specify 'a nil year when neither the parenthetical nor col_year ' \
-        'has one' do
+      # Quercus robur
+      specify 'does not add parens for a name in its original combination' do
+        expect(t.split_authorship('L.', nil, col_code: 'botanical'))
+          .to eq(['L.', nil])
+      end
+    end
+
+    # See the ICNP TODO on .split_authorship.
+    context 'col_code: bacterial (ICNP)' do
+      # Escherichia coli
+      xspecify 'keeps the whole parenthesized citation, without years or ' \
+        'the Approved Lists annotation' do
         expect(
           t.split_authorship(
-            '(Drude) Thorne ex Royen', nil, col_code: 'botanical'
+            '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
+            '1919', col_code: 'bacterial'
           )
-        ).to eq(['Drude', nil, 'Thorne ex Royen'])
+        ).to eq(['(Migula) Castellani & Chalmers', 1895])
       end
 
-      specify 'a nil combination_author for a name in its original ' \
-        'combination' do
-        _author, _year, combination_author = t.split_authorship(
-          'L., 1753', nil, col_code: 'botanical'
-        )
-        expect(combination_author).to be_nil
+      # Staphylococcus aureus
+      specify 'drops the Approved Lists annotation from a name in its ' \
+        'original combination' do
+        expect(
+          t.split_authorship(
+            'Rosenbach, 1884 (Approved Lists 1980)', '1884',
+            col_code: 'bacterial'
+          )
+        ).to eq(['Rosenbach', 1884])
       end
     end
   end

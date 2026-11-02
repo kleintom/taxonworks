@@ -173,54 +173,55 @@ module Vendor
       end
 
       # Splits a CoL authorship string into
-      # [verbatim_author, year_of_publication, combination_author].
+      # [verbatim_author, year_of_publication].
       #
       # TaxonWorks Protonym validates that verbatim_author contains no digits,
       # so the year must be stored separately in year_of_publication.
       #
       # CoL provides authorship in two forms:
-      #   "Linnaeus, 1758" → author "Linnaeus", year 1758, no
-      #     combination_author
-      #   "(Chatton, 1925) Whittaker & Margulis, 1978" →
-      #     author "Chatton", year 1925, combination_author
-      #     "Whittaker & Margulis"
+      #   "Linnaeus, 1758" → author "Linnaeus", year 1758
+      #   "(Chatton, 1925) Whittaker & Margulis, 1978" → a recombination: the
+      #     basionym's author + year in parens, then the current
+      #     combination's
       #
-      # A Protonym represents the original description, so whenever
-      # authorship leads with a basionym parenthetical, that basionym's own
-      # author + year always wins — even over an explicit col_year (CoL's
-      # combinationAuthorship year), which describes the *current*
-      # combination, not the original one. When the parenthetical carries no
-      # year of its own (common in ICN citations, e.g. "(Drude) Thorne ex
-      # Royen"), col_year is used as a fallback for year_of_publication only.
+      # A Protonym represents the original description, so for a
+      # recombination year_of_publication is always the basionym's year —
+      # even over an explicit col_year (CoL's combinationAuthorship year),
+      # which describes the *current* combination, not the original one. When
+      # the parenthetical carries no year of its own (common in ICN
+      # citations, e.g. "(Drude) Thorne ex Royen"), col_year is the fallback.
       #
-      # ICZN (col_code: 'zoological') wraps the returned author in parens,
-      # e.g. "(Chatton)", and combination_author is always nil — that
-      # parenthesization is TaxonWorks' own sanctioned signal that a Protonym
-      # is not in its original combination (see Protonym's
-      # author-parenthesization validation and TaxonName#iczn_author_and_year,
-      # which strips and re-wraps parens found on verbatim_author). Other
-      # codes have no such mechanism — TaxonName#icn_author_and_year instead
-      # relies on a Combination + TaxonNameRelationship::CurrentCombination —
-      # so combination_author is returned unwrapped for
-      # CatalogueOfLifeCreator to build that Combination with (ICN only; see
-      # the TODO below for ICNP/ICVCN).
+      # The recombination is signalled with parens on verbatim_author, as
+      # TaxonWorks' author rendering expects for each code:
+      #   * ICZN (col_code: 'zoological'): just the basionym author, wrapped,
+      #     e.g. "(Chatton)" — TaxonName#iczn_author_and_year strips and
+      #     re-wraps parens found on verbatim_author, and the combination
+      #     author isn't part of an ICZN citation
+      #   * ICN (col_code: 'botanical'): the whole citation, years removed,
+      #     e.g. "(Drude) Thorne ex Royen" — Protonym's closed-parens
+      #     validation exempts ICN for exactly this, and
+      #     TaxonName#icn_author_and_year renders verbatim_author as-is
       #
       # If no year can be extracted at all the author string is returned
       # as-is with year nil.
       #
-      # TODO: ICNP/ICVCN recombinations still can't render parenthesized,
-      # since TaxonNameRelationship::CurrentCombination.valid_object_ranks is
-      # hardcoded to GENUS_AND_SPECIES_RANK_NAMES_ICN — it doesn't validate
-      # against ICNP or ICVCN ranks at all. Supporting those codes needs that
-      # TaxonWorks-wide restriction lifted first, which is out of scope here.
+      # TODO: investigate/fix ICNP recombinations. They get the basionym author
+      # without parens, so they read as original combinations. CoL cites them
+      # like ICN, e.g. Escherichia coli "(Migula, 1895) Castellani & Chalmers
+      # 1919 (Approved Lists 1980)", but Protonym's closed-parens validation
+      # only exempts ICN, so "(Migula) Castellani & Chalmers" isn't storable
+      # (see the xspecs). A fix probably needs that validation to exempt ICNP
+      # too, plus stripping CoL's "(Approved Lists 1980)" annotation. ICVCN
+      # isn't affected: CoL gives virus names no authorship at all (checked
+      # 2026-11).
       #
       # @param col_authorship [String, nil]
       # @param col_year [String, nil]
       # @param col_code [String, nil] 'zoological', 'botanical', 'bacterial',
       #   'virus'
-      # @return [Array(String, Integer, String), Array(nil, nil, nil)]
+      # @return [Array(String, Integer), Array(nil, nil)]
       def self.split_authorship(col_authorship, col_year, col_code: nil)
-        return [nil, nil, nil] if col_authorship.blank?
+        return [nil, nil] if col_authorship.blank?
 
         # ICZN always carries a year in its authorship citation.
         if col_code == 'zoological' &&
@@ -228,7 +229,7 @@ module Vendor
           basionym_author = strip_years(basionym_match[1])
           basionym_author =
             basionym_author.blank? ? nil : "(#{basionym_author})"
-          return [basionym_author, basionym_match[2].to_i, nil]
+          return [basionym_author, basionym_match[2].to_i]
         end
 
         # Other codes: the parenthetical's year is optional, and whatever
@@ -237,14 +238,17 @@ module Vendor
             (basionym_match = col_authorship.match(/\A\(([^)]+)\)\s*(.*)\z/))
           inner = basionym_match[1]
           basionym_author = strip_trailing_year(inner)
-          basionym_author = nil if basionym_author.blank?
           basionym_year = extract_year(inner) || col_year.presence&.to_i
 
-          combination_author = strip_years(basionym_match[2])
-          combination_author = nil if combination_author.blank?
+          if basionym_author.present?
+            if col_code == 'botanical'
+              combination_author = strip_years(basionym_match[2])
+              author = "(#{basionym_author}) #{combination_author}".strip
+              return [author, basionym_year]
+            end
 
-          if basionym_author
-            return [basionym_author, basionym_year, combination_author]
+            # TODO: ICNP lands here too - see the ICNP TODO above.
+            return [basionym_author, basionym_year]
           end
         end
 
@@ -266,7 +270,7 @@ module Vendor
         year ||= extract_last_year(col_authorship)
 
         author = nil if author.blank?
-        [author, year, nil]
+        [author, year]
       end
 
       # Strips every ", YYYY" / " YYYY" occurrence out of text (e.g. a year

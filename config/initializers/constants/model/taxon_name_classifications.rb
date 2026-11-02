@@ -57,7 +57,7 @@ TAXON_NAME_CLASSIFICATION_NAMES ||= (ICN_TAXON_NAME_CLASSIFICATION_NAMES + ICVCN
 # published). Prefer a Synonym relationship to the accepted name when that
 # name is available.
 NOMENCLATURE_CODE_TO_SYNONYM_CLASSIFICATION ||= {
-  iczn: 'TaxonNameClassification::Iczn::Available::Invalid',
+  iczn:  'TaxonNameClassification::Iczn::Available::Invalid',
   icn:   'TaxonNameClassification::Icn::EffectivelyPublished::InvalidlyPublished::AsSynonym',
   icnp:  'TaxonNameClassification::Icnp::EffectivelyPublished::InvalidlyPublished',
   icvcn: 'TaxonNameClassification::Icvcn::Valid::Unaccepted'

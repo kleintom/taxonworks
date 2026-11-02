@@ -1,8 +1,7 @@
 module Autoselect
   module TaxonName
-    # Creates TaxonName records (CoL URI identifiers, and — for ICN
-    # recombinations — a Combination + CurrentCombination too) from a
-    # Catalog of Life selection.
+    # Creates TaxonName records (and CoL URI identifiers) from a Catalog of Life
+    # selection.
     #
     # Receives an ordered list of rows (distal → proximal, i.e. kingdom first,
     # target last).
@@ -128,7 +127,7 @@ module Autoselect
             # like 'domain').
             next if rank_class.nil?
 
-            author, year, combination_author =
+            author, year =
               split_authorship(row[:col_authorship], row[:col_year])
 
             begin
@@ -149,10 +148,6 @@ module Autoselect
                 col_name: row[:col_name],
                 col_id: row[:col_id]
               )
-            end
-
-            if combination_author.present?
-              build_current_combination(tn, combination_author)
             end
 
             create_col_identifier(tn, row) if row[:col_id].present?
@@ -189,45 +184,6 @@ module Autoselect
             "#{e.record.errors.full_messages.join(', ')}",
           col_name: row[:col_name],
           col_id: row[:col_id]
-        )
-      end
-
-      # Builds the Combination + TaxonNameRelationship::CurrentCombination
-      # that TaxonName#icn_author_and_year needs to render a recombination as
-      # "(Basionym) ComboAuthor" — see
-      # Vendor::Colrapi::NameTranslation.split_authorship's doc for why this
-      # is separate from verbatim_author.
-      #
-      # TaxonNameRelationship::CurrentCombination.valid_object_ranks only
-      # covers ICN genus/species-group ranks, so this silently does nothing
-      # when protonym or its parent don't fit — that combination just keeps
-      # its already-correct, unwrapped basionym author with no parens shown.
-      def build_current_combination(protonym, combination_author)
-        return if !::SPECIES_RANK_NAMES_ICN.include?(protonym.rank_string)
-
-        genus = protonym.parent
-        return if !(genus && ::GENUS_RANK_NAMES_ICN.include?(genus.rank_string))
-
-        combination = ::Combination.create!(
-          genus_id: genus.id,
-          species_id: protonym.id,
-          verbatim_author: combination_author,
-          project_id: @project_id,
-          by: @user_id
-        )
-
-        ::TaxonNameRelationship::CurrentCombination.create!(
-          subject_taxon_name: combination,
-          object_taxon_name: protonym,
-          project_id: @project_id,
-          by: @user_id
-        )
-      rescue ::ActiveRecord::RecordInvalid => e
-        raise CreationError.new(
-          "Current combination for #{protonym.name}: " \
-            "#{e.record.errors.full_messages.join(', ')}",
-          col_name: protonym.name,
-          col_id: nil
         )
       end
 
@@ -273,7 +229,7 @@ module Autoselect
       end
 
       # Splits a CoL authorship string into
-      # [verbatim_author, year_of_publication, combination_author].
+      # [verbatim_author, year_of_publication].
       def split_authorship(col_authorship, col_year)
         ::Vendor::Colrapi::NameTranslation.split_authorship(
           col_authorship, col_year, col_code: @col_code

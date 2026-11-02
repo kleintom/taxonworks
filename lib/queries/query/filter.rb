@@ -41,9 +41,10 @@ module Queries
     SUBQUERIES = {
       anatomical_part: [:collection_object, :field_occurrence, :otu, :observation, :extract, :sound, :biological_association],
       asserted_distribution: [:source, :otu, :biological_association, :taxon_name, :dwc_occurrence, :observation],
+      asserted_environment: [:collecting_event, :otu],
       biological_association: [:source, :collecting_event, :otu, :collection_object, :field_occurrence, :taxon_name, :asserted_distribution, :anatomical_part],
       biological_associations_graph: [:biological_association, :source],
-      collecting_event: [:source, :collection_object, :field_occurrence, :biological_association, :otu, :image, :taxon_name, :dwc_occurrence],
+      collecting_event: [:source, :collection_object, :field_occurrence, :biological_association, :otu, :image, :taxon_name, :dwc_occurrence, :asserted_environment],
       collection_object: [:source, :loan, :otu, :taxon_name, :collecting_event, :biological_association, :extract, :image, :observation, :dwc_occurrence, :anatomical_part],
       content: [:source, :otu, :taxon_name, :image],
       conveyance: [:sound],
@@ -57,7 +58,7 @@ module Queries
       image: [:content, :collection_object, :collecting_event, :field_occurrence, :otu, :observation, :source, :taxon_name ],
       loan: [:collection_object, :otu],
       observation: [:asserted_distribution, :collection_object, :descriptor, :extract, :field_occurrence, :image, :otu, :sound, :source, :taxon_name, :anatomical_part],
-      otu: [:asserted_distribution, :biological_association, :collection_object, :dwc_occurrence, :field_occurrence, :collecting_event, :content, :descriptor, :extract, :image, :loan, :observation, :source, :taxon_name, :anatomical_part, :sound ],
+      otu: [:asserted_distribution, :biological_association, :collection_object, :dwc_occurrence, :field_occurrence, :collecting_event, :content, :descriptor, :extract, :image, :loan, :observation, :source, :taxon_name, :anatomical_part, :sound, :asserted_environment ],
       person: [],
       source: [:asserted_distribution,  :biological_association, :collecting_event, :collection_object, :content, :descriptor, :extract, :image, :observation, :otu, :taxon_name, :taxon_name_relationship],
       sound: [:observation, :anatomical_part, :otu, :taxon_name],
@@ -93,6 +94,7 @@ module Queries
     FILTER_QUERIES = {
       anatomical_part_query: '::Queries::AnatomicalPart::Filter',
       asserted_distribution_query: '::Queries::AssertedDistribution::Filter',
+      asserted_environment_query: '::Queries::AssertedEnvironment::Filter',
       biological_association_query: '::Queries::BiologicalAssociation::Filter',
       biological_associations_graph_query: '::Queries::BiologicalAssociationsGraph::Filter',
       collecting_event_query: '::Queries::CollectingEvent::Filter',
@@ -129,17 +131,17 @@ module Queries
     #   false, nil - ignored
     attr_accessor :paginate
 
-    # @return Integer, nil
+    # @return [Integer, nil]
     #   required if paginate == true
     attr_accessor :page
 
-    # @return Integer, nil
+    # @return [Integer, nil]
     #   paginate must equal true
     #   page must be !nil?
     attr_accessor :per
 
     # @return [Array]
-    # @params object_global_id
+    # @param object_global_id
     #   Rails global ids.
     #  Locally these look like gid://taxon-works/Otu/1
     # Using a global id is equivalent to
@@ -158,6 +160,9 @@ module Queries
 
     # @return [Query::AssertedDistribution::Filter, nil]
     attr_accessor :asserted_distribution_query
+
+    # @return [Query::AssertedEnvironment::Filter, nil]
+    attr_accessor :asserted_environment_query
 
     # @return [Query::BiologicalAssociation::Filter, nil]
     attr_accessor :biological_association_query
@@ -225,7 +230,7 @@ module Queries
     # @return [Query::Sound::Filter, nil]
     attr_accessor :sound_query
 
-    # @return Boolean
+    # @return [Boolean]
     #   Applies an order on updated.
     attr_accessor :recent
 
@@ -233,23 +238,23 @@ module Queries
     #   defaults to :updated_at if blank
     attr_accessor :recent_target
 
-    # @return Boolean
+    # @return [Boolean]
     #   When true api_except_params is applied and
     #   other restrictions are placed:
     #     - :venn param is ignored
     #     - is_public=true is applied
     attr_accessor :api
 
-    # @return String
+    # @return [String]
     #   A JSON full URL containing the base string for a query
     attr_accessor :venn
 
-    # @return Symbol one of :a, :ab, :b
+    # @return [Symbol] one of :a, :ab, :b
     #    :a :ab  :b
     #  ( A ( B ) C )
     attr_accessor :venn_mode
 
-    # @return Boolean
+    # @return [Boolean]
     # When true, all paging parameters will be removed from the B query and it
     # will return its full result set for venn processing.
     # When false, the B venn query will use only the single page indicated by
@@ -269,14 +274,14 @@ module Queries
     #
     attr_accessor :order_by
 
-    # @return Hash
+    # @return [Hash]
     #  the parsed/permitted params
     #   that were used to on initialize() only!!
     # !! Using setters directly on query parameters will not alter this variable !!
     # !! This is used strictly during the permission process of ActionController::Parameters !!
     attr_reader :params
 
-    # @return Boolean
+    # @return [Boolean]
     # If true then *_facet methods need only return
     # scope.none to indicate that the facet is active
     # given the current parameters. Facet return scopes
@@ -287,7 +292,7 @@ module Queries
     # ignore this.
     attr_accessor :roll_call
 
-    # @params query_params [ActionController::Parameters]
+    # @param query_params [ActionController::Parameters]
     def initialize(query_params)
 
       # Reference to query_params, i.e. always permitted
@@ -372,7 +377,7 @@ module Queries
       Rack::Utils.parse_nested_query(url)
     end
 
-    # @params [Parameters]
+    # @param params [ActionController::Parameters]
     # @return [Filter, nil]
     #    the class of filter that is referenced at the base of this parameter set
     def self.base_filter(params)
@@ -431,6 +436,7 @@ module Queries
         f.push ::Queries::Concerns::Notes if self < ::Queries::Concerns::Notes
         f.push ::Queries::Concerns::Protocols if self < ::Queries::Concerns::Protocols
         f.push ::Queries::Concerns::Tags if self < ::Queries::Concerns::Tags
+        f.push ::Queries::Concerns::TaxonDetermination if self < ::Queries::Concerns::TaxonDetermination
         f.push ::Queries::Concerns::Verifiers if self < ::Queries::Concerns::Verifiers
         f.push ::Queries::Concerns::PreparationTypes if self < ::Queries::Concerns::PreparationTypes
       end
@@ -438,7 +444,7 @@ module Queries
       f
     end
 
-    # @return Array
+    # @return [Array]
     #  merges `[:a, {a: []}]` into [:a]
     def self.params
       a = self::PARAMS.dup
@@ -452,7 +458,7 @@ module Queries
       [:venn, :venn_mode]
     end
 
-    # @return Array, nil
+    # @return [Array, nil]
     #   a [:a, :b, {c: []}] formatted Array
     # to be merged into included params
     def self.annotator_params
@@ -505,8 +511,8 @@ module Queries
     # something like params.permitted_params => Array after multiple calls like params.permit(:a),
     # params.permit(:b).
     #
-    # @return Array like [:a,:b, :c, {d: []}]
-    # @params hsh Hash
+    # @return [Array] like [:a,:b, :c, {d: []}]
+    # @param hsh Hash
     #    Uses an *unsafe* hash from an instance of ActionController::Parameters or
     # any parameter set for the query.
     def permitted_params(hsh)
@@ -582,7 +588,7 @@ module Queries
       h
     end
 
-    # @params hsh Hash
+    # @param hsh Hash
     # @return [Array of Symbol]
     #   all queries, in nested order
     # Since queries nest linearly we don't need to recursion.
@@ -596,15 +602,15 @@ module Queries
       result.map(&:to_sym)
     end
 
-    # @params params ActionController::Parameters
+    # @param params ActionController::Parameters
     # @return ActionController::Parameters
     def deep_permit(params)
-      p = params.permit( permitted_params(params.to_unsafe_hash))
+      params.permit( permitted_params(params.to_unsafe_hash))
     end
 
-    # @params params [Hash]
+    # @param params [Hash]
     #   set all nested queries variables, e.g. @otu_filter_query
-    # @return True
+    # @return [True]
     # TODO: when a nesting problem is found we need to flag the query as invalid
     def set_nested_queries(params)
 
@@ -841,7 +847,7 @@ module Queries
       self.class.new(a)
     end
 
-    # @return Boolean
+    # @return [Boolean]
     #   true - the only param pasted is `project_id` !! Note that this is the default for all queries, it is set on initialize
     #   false - there are no params at ALL or at least one that is not `project_id`, and project_id != false
     # !! WARNING: this will "fail" (i.e. return false) in background jobs where

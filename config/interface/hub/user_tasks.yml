@@ -1135,6 +1135,16 @@ filter_anatomical_parts_task:
     - biology
   status: prototype
   description: 'Filter anatomical parts by many different facets, download or visualize results.'
+filter_asserted_environments_task:
+  hub: true
+  name: 'Filter asserted environments'
+  related:
+  categories:
+    - filters
+    - collecting
+    - biology
+  status: prototype
+  description: 'Filter asserted environments (ENVO terms characterizing OTUs, collecting events, and gazetteers) by many different facets, download results.'
 anatomical_parts_graph_task:
   hub: true
   name: 'New/graph anatomical part'
@@ -1272,6 +1282,14 @@ collection_visualization_task:
     - occurrences
   status: prototype
   description: 'Visualize a collection hierarchy using treemap and other views.'
+cite_key_task:
+  hub: true
+  name: 'Add simple key'
+  related:
+  categories:
+    - new
+  status: prototype
+  description: 'Record a citation for a dichotomous key in the literature and attach OTUs, without adding a description to every lead.'
 assign_taxon_name_task:
   hub: true
   name: 'Assign taxon name to OTU'
@@ -1290,3 +1308,13 @@ project_organizations_task:
     - project
   status: prototype
   description: 'Add and remove the organizations that are associated with your project.'
+new_asserted_environment_task:
+  hub: true
+  name: 'New asserted environment'
+  related:
+  categories:
+    - new
+    - collecting
+    - biology
+  status: prototype
+  description: 'Create new asserted environments (ENVO terms characterizing OTUs, collecting events, and gazetteers), optionally cited.'

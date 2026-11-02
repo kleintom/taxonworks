@@ -195,6 +195,7 @@ class CollectingEvent < ApplicationRecord
   include Shared::Documentation
   include Shared::ProtocolRelationships
   include Shared::HasPapertrail
+  include Shared::AssertedEnvironments
   include SoftValidation
   include Shared::Labels
   include Shared::DwcOccurrenceHooks
@@ -210,6 +211,8 @@ class CollectingEvent < ApplicationRecord
   ignore_whitespace_on(:document_label, :verbatim_label, :print_label)
 
   is_origin_for 'Sound'
+
+  GRAPH_ENTRY_POINTS = [:asserted_environments].freeze
 
   NEARBY_DISTANCE = 5000
   MINIMUM_ELEVATION = -11000
@@ -344,7 +347,7 @@ class CollectingEvent < ApplicationRecord
     ::Queries.union(DwcOccurrence, [a,b])
   end
 
-  # @param [String]
+  # @param value [String]
   def verbatim_label=(value)
     write_attribute(:verbatim_label, value)
     write_attribute(:md5_of_verbatim_label, Utilities::Strings.generate_md5(value))
@@ -396,7 +399,7 @@ class CollectingEvent < ApplicationRecord
         CollectingEvent.where(project_id:, updated_by_id: user_id, created_at: 3.hours.ago..Time.now)
           .merge(georeference_restriction).limit(5).to_a).uniq,
         pinboard: CollectingEvent.pinned_by(user_id).pinned_in_project(project_id)
-          .merge(georeference_restriction).to_a
+          .merge(georeference_restriction).pinboard_ordered.to_a
       }
 
       h[:quick] = (CollectingEvent.pinned_by(user_id).pinboard_inserted.pinned_in_project(project_id)
@@ -743,7 +746,9 @@ class CollectingEvent < ApplicationRecord
   end
 
   # DEPRECATED for shared code
-  # @param [String, String, Integer]
+  # @param compared_string [String]
+  # @param column [String]
+  # @param limit [Integer]
   # @return [Scope]
   def nearest_by_levenshtein(compared_string = nil, column = 'verbatim_locality', limit = 10)
     return CollectingEvent.none if compared_string.nil?
@@ -755,7 +760,7 @@ class CollectingEvent < ApplicationRecord
       limit(limit)
   end
 
-  # @param [String]
+  # @param types [String]
   #   one or more names from GeographicAreaType
   # @return [Hash]
   #    (
@@ -825,7 +830,7 @@ class CollectingEvent < ApplicationRecord
     @geographic_names ||= {}
   end
 
-  # @return Hash
+  # @return [Hash]
   #  a geographic_name_classification.
   # This (normally) prioritizes Georeferences over GeographicArea!
   def get_geographic_name_classification
@@ -889,7 +894,7 @@ class CollectingEvent < ApplicationRecord
     name_hash(GeographicAreaType::COUNTY_LEVEL_TYPES)
   end
 
-  # @param [Hash]
+  # @param name_hash [Hash]
   # @return [String]
   def name_from_geopolitical_hash(name_hash)
     return nil if name_hash.keys.count == 0
@@ -957,7 +962,7 @@ class CollectingEvent < ApplicationRecord
     base
   end
 
-  # @param [Float] delta_z, will be used to fill in the z coordinate of the point
+  # @param [Float] delta_z will be used to fill in the z coordinate of the point
   # @return [RGeo::Geographic::ProjectedPointImpl, nil]
   #   for the *verbatim* latitude/longitude only
   def verbatim_map_center(delta_z = 0.0)

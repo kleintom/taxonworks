@@ -111,6 +111,15 @@ Supporting:
     status: :prototype
     categories:
       - source
+  AssertedEnvironment:
+    status: :prototype
+    related_models:
+      - CollectingEvent
+      - Gazetteer
+      - Otu
+    categories:
+      - biology
+      - collecting
   BiologicalAssociationsGraph:
     status: :prototype
     related_models:
@@ -301,10 +310,6 @@ Supporting:
       - CollectionObject
       - Sequence
       - Extract
-  OtuPageLayout:
-    status: :prototype
-    related_models:
-      - ControlledVocabularyTerm
   OtuRelationship:
     status: :prototype
     categories:
@@ -425,4 +430,7 @@ Annotations:
       - ControlledVocabularyTerm
 Communication:
   News:
+    status: :prototype
+Render:
+  Composition:
     status: :prototype

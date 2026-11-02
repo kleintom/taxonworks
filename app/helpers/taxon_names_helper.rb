@@ -6,9 +6,12 @@ module TaxonNamesHelper
 
   # HTML label for the autoselect dropdown (left-justified).
   # Uses cached_html for real records; falls back to cached for CoL pseudo-records.
-  def taxon_name_autoselect_tag(taxon_name)
+  def taxon_name_autoselect_tag(taxon_name, term = nil)
     return nil if taxon_name.nil?
-    tag.span( taxon_name.cached_html_name_and_author_year.html_safe, class: :klass)
+    tag.span(
+     mark_tag(
+      taxon_name.cached_html_name_and_author_year.html_safe, term
+     ), class: :klass)
   end
 
   # Disambiguation info Array for the autoselect dropdown (right-justified).
@@ -27,7 +30,7 @@ module TaxonNamesHelper
   #   the taxon name without author year, with HTML
   def taxon_name_tag(taxon_name)
     return nil if taxon_name.nil?
-    return taxon_name.name if taxon_name.new_record?
+    return taxon_name.name if taxon_name.new_record? # likely not needed
     taxon_name.cached_html.try(:html_safe) || taxon_name.name
   end
 
@@ -52,6 +55,7 @@ module TaxonNamesHelper
     ].compact.join('&nbsp;').html_safe
   end
 
+  # DEPRECATE!
   # @return [String]
   #   no HTML inside <input>
   def taxon_name_autocomplete_selected_tag(taxon_name)
@@ -518,7 +522,7 @@ module TaxonNamesHelper
   end
 
   # Perhaps a /lib/catalog method
-  # @return Hash
+  # @return [Hash]
   def taxon_names_count_by_validity_and_year(scope = nil)
     return {} if scope.nil?
     invalid = taxon_names_by_year_count(scope.that_is_invalid)
@@ -575,7 +579,7 @@ module TaxonNamesHelper
   end
 
   # Perhaps a /lib/catalog method
-  # @return Hash
+  # @return [Hash]
   def taxon_names_cumulative_count_by_validity_and_year(scope = nil)
     return {} if scope.nil?
     invalid = taxon_names_by_year_count(scope.that_is_invalid)
@@ -645,7 +649,7 @@ module TaxonNamesHelper
   end
 
   # @return [String] with HTML
-  # @params selected_names [Scope]
+  # @param selected_names [Scope]
   #   optionally bold these names if found in names
   # !! Does not try to sort names, works best in combination with `ancestrify: true` in ::Queries::TaxonNames::Filter
   # TODO: there is some missalignment on the name matching, you'll see some names that likely matched not linked.

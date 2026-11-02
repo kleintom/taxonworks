@@ -354,12 +354,11 @@ class OtusController < ApplicationController
     ).all
       .joins("LEFT OUTER JOIN observations ON (observations.id = depictions.depiction_object_id and depictions.depiction_object_type = 'Observation')")
       .joins('LEFT OUTER JOIN descriptors ON descriptors.id = observations.descriptor_id')
-      .joins('LEFT OUTER JOIN observation_matrix_column_items ON descriptors.id = observation_matrix_column_items.descriptor_id')
       .eager_load(image: [:attribution])
     if params[:sort_order]
-      @depictions = @depictions.order( Arel.sql( conditional_sort('depictions.depiction_object_type', params[:sort_order]) + ', observation_matrix_column_items.position, depictions.depiction_object_id, depictions.position' ))
+      @depictions = @depictions.order( Arel.sql( conditional_sort('depictions.depiction_object_type', params[:sort_order]) + ', descriptors.position, depictions.depiction_object_id, depictions.position' ))
     else
-      @depictions = @depictions.order('depictions.depiction_object_type, observation_matrix_column_items.position, depictions.depiction_object_id, depictions.position')
+      @depictions = @depictions.order('depictions.depiction_object_type, descriptors.position, depictions.depiction_object_id, depictions.position')
     end
     @depictions = @depictions.page(params[:page]).per(params[:per])
 
@@ -411,8 +410,9 @@ class OtusController < ApplicationController
   # GET /api/v1/otus/:id/inventory/content
   def api_content
     topic_ids = [params[:topic_id]].flatten.compact.uniq
+    otu_ids = params[:coordinate_otus] == 'true' ? Otu.coordinate_otus(@otu.id).pluck(:id) : [@otu.id]
 
-    @public_content =  PublicContent.where(otu: @otu, project_id: sessions_current_project_id)
+    @public_content = PublicContent.where(otu_id: otu_ids, project_id: sessions_current_project_id)
     @public_content = @public_content.joins(:topic).where(topic_id: topic_ids) unless topic_ids.empty?
 
     render '/otus/api/v1/inventory/content'
@@ -503,28 +503,44 @@ class OtusController < ApplicationController
   end
 
   # POST /otus/autoselect_col_create
-  # Creates TaxonNames from a CoL alignment then wraps the result in a new OTU.
+  # Creates TaxonNames from a CoL alignment then wraps the result in an OTU:
+  # the name's existing one when it's unambiguous, else a new one if it has
+  # none. When the user has to choose the OTU, nothing is created (see
+  # Autoselect::Otu::ColExistingOtu).
   def autoselect_col_create
-    tn_result = ::Autoselect::TaxonName::CatalogueOfLifeCreator.new(
-      rows:     autoselect_col_create_params,
-      col_code: params[:col_code],
-      project_id: sessions_current_project_id,
-      user_id:    sessions_current_user_id
-    ).call
+    tn_result = nil
+    otu = nil
 
-    otu = ::Otu.create!(
+    # CatalogueOfLifeCreator's own transaction joins this one, so an ambiguous
+    # OTU rolls back the TaxonNames too.
+    ::ActiveRecord::Base.transaction do
+      tn_result = ::Autoselect::TaxonName::CatalogueOfLifeCreator.new(
+        rows:     autoselect_col_create_params,
+        col_code: params[:col_code],
+        project_id: sessions_current_project_id,
+        user_id:    sessions_current_user_id
+      ).call
+
+      otu = ::Autoselect::Otu::ColExistingOtu.find_or_create_for(
+        tn_result[:taxon_name_id],
+        project_id: sessions_current_project_id,
+        user_id: sessions_current_user_id
+      )
+    end
+
+    render json: {
+      otu_id: otu.id,
       taxon_name_id: tn_result[:taxon_name_id],
-      project_id:    sessions_current_project_id,
-      created_by_id: sessions_current_user_id,
-      updated_by_id: sessions_current_user_id
-    )
-    render json: { otu_id: otu.id, taxon_name_id: tn_result[:taxon_name_id], global_id: otu.to_global_id.to_s }
+      global_id: otu.to_global_id.to_s
+    }
   rescue ::Autoselect::TaxonName::CatalogueOfLifeCreator::CreationError => e
     render json: {
       error:           e.message,
       failed_col_name: e.col_name,
       failed_col_id:   e.col_id
     }, status: :unprocessable_entity
+  rescue ::Autoselect::Otu::ColExistingOtu::AmbiguousOtuError => e
+    render json: { error: e.message }, status: :unprocessable_entity
   end
 
   # POST /otus/create_morphospecies_otu
@@ -561,6 +577,20 @@ class OtusController < ApplicationController
     end
   end
 
+  # Distribution for exactly the OTUs in otu_id[] (coordinate OTUs are not added)
+  # GET|POST /otus/distribution.geojson?otu_id[]=1&otu_id[]=2
+  def distribution_by_otus
+    @otus = distribution_otus
+    render json: { error: 'otu_id is required' }, status: :unprocessable_content if @otus.nil?
+  end
+
+  # Absent distribution for exactly the OTUs in otu_id[] (coordinate OTUs are not added)
+  # GET|POST /otus/distribution_is_absent.geojson?otu_id[]=1&otu_id[]=2
+  def distribution_is_absent_by_otus
+    @otus = distribution_otus
+    render json: { error: 'otu_id is required' }, status: :unprocessable_content if @otus.nil?
+  end
+
   # GET /api/v1/otus/:id/inventory/distribution_is_absent.geojson
   def api_distribution_is_absent
     @descendants = params[:descendants] == 'true'
@@ -572,6 +602,15 @@ class OtusController < ApplicationController
   end
 
   private
+
+  # @return [ActiveRecord::Relation, nil]
+  #   nil when no otu_id is provided
+  def distribution_otus
+    otu_ids = [params[:otu_id]].flatten.compact_blank
+    return nil if otu_ids.empty?
+
+    Otu.where(project_id: sessions_current_project_id, id: otu_ids)
+  end
 
   def autoselect_params
     params.permit(:show_info, :dataset_id).to_h.symbolize_keys

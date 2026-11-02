@@ -45,6 +45,15 @@
                 placeholder="Caption"
               />
             </div>
+            <div class="separate-bottom">
+              <label>
+                <input
+                  type="checkbox"
+                  v-model="depiction.is_metadata_depiction"
+                />
+                Is data depiction
+              </label>
+            </div>
           </div>
           <div class="flex-separate">
             <div>
@@ -158,6 +167,7 @@
           :image="imageObject"
           :url="thumbUrlSrc"
           :depiction="depiction"
+          :has-crop="hasSVGBox"
         >
           <div :class="[`depiction-${thumbSize}-image`]">
             <img
@@ -270,7 +280,7 @@ const hasSVGBox = computed(() => props.depiction?.svg_view_box != null)
 const thumbUrlSrc = computed(() => {
   const depiction = props.depiction
 
-  return props.hasSVGBox
+  return hasSVGBox.value
     ? imageSVGViewBox(
         imageObject.value.id,
         depiction.svg_view_box,
@@ -300,7 +310,8 @@ const loadAttributions = async () => {
 const updateDepiction = () => {
   const depiction = {
     caption: props.depiction.caption,
-    figure_label: props.depiction.figure_label
+    figure_label: props.depiction.figure_label,
+    is_metadata_depiction: props.depiction.is_metadata_depiction
   }
 
   Depiction.update(props.depiction.id, { depiction }).then(() => {

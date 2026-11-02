@@ -52,16 +52,16 @@ module Queries
         taxon_name_id: [],
       ].freeze
 
-      # @params ancestrify ['true', True, nil]
-      # @return Boolean
+      # @param ancestrify ['true', True, nil]
+      # @return [Boolean]
       #    if true then, additionally, all coordinate otus for all inferred ancestors are included
       #    the param adds to the result by going "up" (to root) _then_ "out"
       #
       # !! This param is not like the others. !!  See parallel in TaxonName filter 'ancestrify'.
       attr_accessor :ancestrify
 
-      # @params coordinatify ['true', True, nil]
-      # @return Boolean
+      # @param coordinatify ['true', True, nil]
+      # @return [Boolean]
       #    if true then, additionally, all coordinate otus for the result are included
       # See `coordinatify_result` for more.
       #
@@ -69,35 +69,35 @@ module Queries
       attr_accessor :coordinatify
 
       # @param name [String, Array]
-      # @return Array
+      # @return [Array]
       #   literal match against one or more Otu#name
       attr_accessor :name
 
-      # @return Boolean
+      # @return [Boolean]
       #   if true then match on `name` exactly
       attr_accessor :name_exact
 
-      # @return Boolean
+      # @return [Boolean]
       #   true - has name
       #   false - has no name
       #   nil - both
       attr_accessor :with_name
 
       # @param otu_id [Integer, Array]
-      # @return Array
+      # @return [Array]
       #   one or more Otu ids
       attr_accessor :otu_id
 
       # @param taxon_name_id [Integer, Array]
-      # @return Array
+      # @return [Array]
       #   one or more Otu taxon_name_id
       attr_accessor :taxon_name_id
 
-      # @return Boolean
+      # @return [Boolean]
       attr_accessor :descendants
 
       # @param collecting_event_id [Integer, Array]
-      # @return Array
+      # @return [Array]
       #   one or more collecting_event_id
       # Finds all OTUs that are the current determination of
       # a CollectionObject that was collecting in these
@@ -115,7 +115,7 @@ module Queries
       attr_accessor :historical_determinations
 
       # @param biological_association_id [Integer, Array]
-      # @return Array
+      # @return [Array]
       #   one or more biological_association_id
       # Finds all OTUs that are the current determination of
       # a CollectionObject that is in the BiologicalAssociation
@@ -124,7 +124,7 @@ module Queries
       attr_accessor :biological_association_id
 
       # @param biological_relationship_id [Integer, Array]
-      # @return Array
+      # @return [Array]
       #   one or more biological_relationship_id
       # Finds all OTUs that are related to a BiologicalAssociation
       # with the given BiologicalRelationship.
@@ -578,6 +578,13 @@ module Queries
           .joins("JOIN ad ON ad.asserted_distribution_object_id = otus.id AND ad.asserted_distribution_object_type = 'Otu'").distinct
       end
 
+      def asserted_environment_query_facet
+        return nil if asserted_environment_query.nil?
+        ::Otu
+          .with(ae: asserted_environment_query.all)
+          .joins("JOIN ae ON ae.asserted_environment_object_id = otus.id AND ae.asserted_environment_object_type = 'Otu'").distinct
+      end
+
       def content_query_facet
         return nil if content_query.nil?
         s = 'WITH query_con_otus AS (' + content_query.all.to_sql + ') ' +
@@ -695,6 +702,7 @@ module Queries
         ::Otu.from('(' + s + ') as otus').distinct
       end
 
+      # Overrides Queries::Concerns::Conveyances#sound_query_facet (applied via its merge_clauses)
       def sound_query_facet
         otus_from_sound_query
       end
@@ -704,7 +712,9 @@ module Queries
 
         ::Otu
           .joins(:origin_relationships)
+          .where(origin_relationships: { new_object_type: 'AnatomicalPart' })
           .where("origin_relationships.new_object_id IN (#{ anatomical_part_query.all.select(:id).to_sql })")
+          .distinct
       end
       def dwc_occurrences_facet
         return nil if @dwc_occurrences.nil?
@@ -801,6 +811,7 @@ module Queries
           anatomical_part_query_facet,
           asserted_distribution_query_facet,
           asserted_distributions_facet,
+          asserted_environment_query_facet,
           biological_association_query_facet,
           collecting_event_query_facet,
           collection_object_query_facet,
@@ -812,7 +823,6 @@ module Queries
           extract_query_facet,
           loan_query_facet,
           observation_query_facet,
-          sound_query_facet,
           taxon_name_query_facet,
 
           biological_association_id_facet,

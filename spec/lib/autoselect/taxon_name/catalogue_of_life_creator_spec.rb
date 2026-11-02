@@ -68,7 +68,8 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
     end
 
     # TaxonNameRelationship::CurrentCombination only validates against ICN
-    # genus/species ranks (see Vendor::Colrapi.split_authorship's TODO), so a
+    # genus/species ranks (see
+    # Vendor::Colrapi::NameTranslation.split_authorship's TODO), so a
     # recombined ICZN name gets the parenthesized verbatim_author fix but no
     # Combination — confirms the two mechanisms don't collide.
     context 'ICZN (zoological) recombination — no Combination is built' do
@@ -164,8 +165,9 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
     # #5055 TODO follow-up: icn_author_and_year renders recombination via a
     # Combination + TaxonNameRelationship::CurrentCombination, not by
     # inspecting verbatim_author for parens (see
-    # Vendor::Colrapi.split_authorship). CoL's combination-author text
-    # (e.g. "Thorne ex Royen") becomes that Combination's verbatim_author.
+    # Vendor::Colrapi::NameTranslation.split_authorship). CoL's
+    # combination-author text (e.g. "Thorne ex Royen") becomes that
+    # Combination's verbatim_author.
     context 'ICN (botanical) recombination — Thornea robur example' do
       let(:rows) do
         [
@@ -248,6 +250,254 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
       end
     end
 
+    context 'when an unknown-rank row sits between an inserted row and an existing one' do
+      # CoL: Hominidae > Homininae > (a rank TW lacks) > Homo. The skipped row
+      # creates nothing, so Homininae is still the row just inserted above
+      # Homo, and Homo moves onto it.
+      let!(:family) { FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::FamilyGroup::Family', name: 'Hominidae') }
+      let!(:genus) do
+        g = FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::GenusGroup::Genus', name: 'Homo')
+        g.update!(parent: family)
+        g
+      end
+
+      let(:rows) do
+        [
+          row(col_name: family.cached, col_rank: 'family', taxonworks_id: family.id),
+          row(col_name: 'Homininae', col_rank: 'subfamily'),
+          row(col_name: 'Unrankedia', col_rank: 'unranked'),
+          row(col_name: genus.cached, col_rank: 'genus', taxonworks_id: genus.id)
+        ]
+      end
+
+      it 'still reparents the existing row onto the inserted one' do
+        described_class.new(
+          rows:, project_id:, user_id:, col_code: 'zoological'
+        ).call
+        subfamily = ::TaxonName.find_by(name: 'Homininae', project_id:)
+        expect(genus.reload.parent_id).to eq(subfamily.id)
+      end
+    end
+
+    context 'when two consecutive existing rows are not parent and child' do
+      # e.g. a stale modal, or a hand-made request: nothing was inserted, so
+      # the mismatch must not move the curated record.
+      let!(:family) { FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::FamilyGroup::Family', name: 'Hominidae') }
+      let!(:genus) { FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::GenusGroup::Genus', name: 'Homo') }
+
+      let(:rows) do
+        [
+          row(col_name: family.cached, col_rank: 'family', taxonworks_id: family.id),
+          row(col_name: genus.cached, col_rank: 'genus', taxonworks_id: genus.id)
+        ]
+      end
+
+      it 'raises CreationError and leaves the existing record where it is' do
+        parent_id = genus.parent_id
+        expect {
+          described_class.new(
+            rows:, project_id:, user_id:, col_code: 'zoological'
+          ).call
+        }.to raise_error(described_class::CreationError, /Homo/)
+        expect(genus.reload.parent_id).to eq(parent_id)
+      end
+    end
+
+    context 'when a new row is inserted between two existing taxonworks_id rows' do
+      let!(:family) { FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::FamilyGroup::Family', name: 'Hominidae') }
+      # valid_taxon_name's :parent_is_root trait forces parent to the project root on
+      # create, overriding any explicit `parent:` passed in — reparent onto family after.
+      let!(:genus) do
+        g = FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::GenusGroup::Genus', name: 'Homo')
+        g.update!(parent: family)
+        g
+      end
+
+      let(:rows) do
+        [
+          row(col_name: family.cached, col_rank: 'family', taxonworks_id: family.id),
+          row(col_name: 'Homininae', col_rank: 'subfamily', col_authorship: 'Gray, 1825', col_year: '1825'),
+          row(col_name: genus.cached, col_rank: 'genus', taxonworks_id: genus.id)
+        ]
+      end
+
+      subject(:result) {
+        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
+      }
+
+      it 'creates only the inserted (unmatched) row' do
+        expect { result }.to change(::TaxonName, :count).by(1)
+      end
+
+      it "parents the inserted row on the existing row above it" do
+        result
+        subfamily = ::TaxonName.find_by(name: 'Homininae', project_id:)
+        expect(subfamily.parent_id).to eq(family.id)
+      end
+
+      it 'reparents the existing row below the inserted row onto it' do
+        result
+        subfamily = ::TaxonName.find_by(name: 'Homininae', project_id:)
+        expect(genus.reload.parent_id).to eq(subfamily.id)
+      end
+
+      it "does not touch the parent of the row above the inserted row" do
+        expect { result }.not_to change { family.reload.parent_id }
+      end
+    end
+
+    context 'when two consecutive new rows are inserted between two existing taxonworks_id rows' do
+      let!(:family) { FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::FamilyGroup::Family', name: 'Hominidae') }
+      # See the single-insert context above for why genus is reparented after create.
+      let!(:genus) do
+        g = FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::GenusGroup::Genus', name: 'Homo')
+        g.update!(parent: family)
+        g
+      end
+
+      let(:rows) do
+        [
+          row(col_name: family.cached, col_rank: 'family', taxonworks_id: family.id),
+          row(col_name: 'Homininae', col_rank: 'subfamily', col_authorship: 'Gray, 1825', col_year: '1825'),
+          row(col_name: 'Hominini', col_rank: 'tribe', col_authorship: 'Gray, 1825', col_year: '1825'),
+          row(col_name: genus.cached, col_rank: 'genus', taxonworks_id: genus.id)
+        ]
+      end
+
+      subject(:result) {
+        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
+      }
+
+      let(:subfamily) { ::TaxonName.find_by(name: 'Homininae', project_id:) }
+      let(:tribe) { ::TaxonName.find_by(name: 'Hominini', project_id:) }
+
+      it 'creates only the two inserted rows' do
+        expect { result }.to change(::TaxonName, :count).by(2)
+      end
+
+      it 'parents the first inserted row on the existing row above it' do
+        result
+        expect(subfamily.parent_id).to eq(family.id)
+      end
+
+      it 'parents the second inserted row on the first' do
+        result
+        expect(tribe.parent_id).to eq(subfamily.id)
+      end
+
+      it 'reparents the existing row below onto the last inserted row' do
+        result
+        expect(genus.reload.parent_id).to eq(tribe.id)
+      end
+
+      it 'does not touch the parent of the row above the inserted rows' do
+        expect { result }.not_to change { family.reload.parent_id }
+      end
+    end
+
+    context 'when two consecutive rows already have taxonworks_ids and are already correctly linked' do
+      let!(:family) { FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::FamilyGroup::Family', name: 'Hominidae') }
+      # valid_taxon_name's :parent_is_root trait forces parent to the project root on
+      # create, overriding any explicit `parent:` passed in — reparent onto family after.
+      let!(:genus) do
+        g = FactoryBot.create(:valid_taxon_name, rank_class: 'NomenclaturalRank::Iczn::GenusGroup::Genus', name: 'Homo')
+        g.update!(parent: family)
+        g
+      end
+
+      let(:rows) do
+        [
+          row(col_name: family.cached, col_rank: 'family', taxonworks_id: family.id),
+          row(col_name: genus.cached, col_rank: 'genus', taxonworks_id: genus.id),
+          row(col_name: 'sapiens', col_rank: 'species', col_authorship: 'Linnaeus, 1758', col_year: '1758')
+        ]
+      end
+
+      subject(:result) {
+        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
+      }
+
+      it 'does not issue an update for the already-correctly-linked existing row' do
+        expect_any_instance_of(::TaxonName).not_to receive(:update!)
+        result
+      end
+
+      it 'never falls back to a per-row find for an already-correctly-linked matched row' do
+        found_ids = []
+        allow(::TaxonName).to receive(:find).and_wrap_original do |original, id|
+          found_ids << id
+          original.call(id)
+        end
+
+        result
+
+        expect(found_ids).not_to include(family.id, genus.id)
+      end
+    end
+
+    context 'when the target (final) row has an existing taxonworks_id' do
+      let!(:existing) { FactoryBot.create(:valid_taxon_name) }
+
+      let(:rows) do
+        [
+          row(col_name: 'Animalia', col_rank: 'kingdom'),
+          row(col_name: existing.cached, col_rank: 'genus', taxonworks_id: existing.id)
+        ]
+      end
+
+      subject(:result) {
+        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
+      }
+
+      it 'does not create a duplicate for the target' do
+        expect { result }.to change(::TaxonName, :count).by(1) # only the ancestor
+      end
+
+      it 'returns the existing record as taxon_name_id, not a newly created one' do
+        expect(result[:taxon_name_id]).to eq(existing.id)
+      end
+    end
+
+    context 'when a row carries a taxonworks_id that does not resolve within the project' do
+      let(:rows) do
+        [
+          row(col_name: 'Animalia', col_rank: 'kingdom'),
+          row(col_name: 'Homo', col_rank: 'genus', taxonworks_id: 999_999_999)
+        ]
+      end
+
+      subject(:result) {
+        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
+      }
+
+      it 'raises CreationError rather than an uncaught RecordNotFound' do
+        expect { result }.to raise_error(described_class::CreationError, /Unknown TaxonName id/)
+      end
+
+      it 'creates nothing' do
+        expect { result rescue nil }.not_to change(::TaxonName, :count)
+      end
+    end
+
+    context 'when a row carries a taxonworks_id belonging to another project' do
+      let!(:other_project_name) { FactoryBot.create(:valid_taxon_name, project: FactoryBot.create(:valid_project)) }
+
+      let(:rows) do
+        [
+          row(col_name: 'Animalia', col_rank: 'kingdom'),
+          row(col_name: other_project_name.cached, col_rank: 'genus', taxonworks_id: other_project_name.id)
+        ]
+      end
+
+      subject(:result) {
+        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
+      }
+
+      it 'rejects it as an unknown id for this project' do
+        expect { result }.to raise_error(described_class::CreationError, /Unknown TaxonName id/)
+      end
+    end
+
     context 'when a row has an unknown rank (e.g. domain)' do
       let(:rows) do
         [
@@ -265,75 +515,86 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
         expect { result }.to change(::TaxonName, :count).by(2)
       end
     end
+
+    context 'when the target has an unknown rank' do
+      # Skipping it would return the last ancestor as the created record.
+      let(:rows) do
+        [
+          row(col_name: 'Animalia', col_rank: 'kingdom'),
+          row(col_name: 'Osteichthyes', col_rank: 'megaclass')
+        ]
+      end
+
+      it 'raises CreationError and creates nothing' do
+        count = ::TaxonName.count
+        expect {
+          described_class.new(
+            rows:, project_id:, user_id:, col_code: 'zoological'
+          ).call
+        }.to raise_error(described_class::CreationError, /megaclass/)
+        expect(::TaxonName.count).to eq(count)
+      end
+    end
   end
 
-  describe 'synonym (non-accepted) status classification' do
-    context 'ICZN target reported as a synonym' do
+  describe 'non-accepted target' do
+    # CoL gives a non-accepted name only its accepted name's classification,
+    # nothing of its own, so it isn't created from CoL (the modal blocks it;
+    # this is the server's guard).
+    def creator(rows)
+      described_class.new(rows:, project_id:, user_id:, col_code: 'zoological')
+    end
+
+    context 'that would be created' do
       let(:rows) do
         [
           row(col_name: 'Animalia', col_rank: 'kingdom'),
-          row(col_name: 'Homo',     col_rank: 'genus'),
-          row(col_name: 'erectus',  col_rank: 'species', col_authorship: 'Dubois, 1893', col_year: '1893',
-              col_status: 'synonym')
+          row(col_name: 'Homo', col_rank: 'genus'),
+          row(col_name: 'erectus', col_rank: 'species',
+            col_authorship: 'Dubois, 1893', col_year: '1893',
+            col_status: 'synonym')
         ]
       end
 
-      subject(:result) {
-        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
-      }
-
-      it 'assigns Iczn::Available::Invalid to the target name' do
-        result
-        species = ::TaxonName.find_by(name: 'erectus', project_id:)
-        expect(species.taxon_name_classifications.map(&:type))
-          .to include('TaxonNameClassification::Iczn::Available::Invalid')
-      end
-
-      it 'does not classify the accepted ancestor rows' do
-        result
-        genus = ::TaxonName.find_by(name: 'Homo', project_id:)
-        expect(genus.taxon_name_classifications).to be_empty
+      it 'raises CreationError and creates nothing' do
+        count = ::TaxonName.count
+        expect { creator(rows).call }
+          .to raise_error(described_class::CreationError, /synonym/)
+        expect(::TaxonName.count).to eq(count)
       end
     end
 
-    context 'ICN target reported as a synonym' do
-      let(:rows) do
-        [
-          row(col_name: 'Plantae',  col_rank: 'kingdom'),
-          row(col_name: 'Quercus',  col_rank: 'genus', col_authorship: 'L.'),
-          row(col_name: 'pedunculata', col_rank: 'species', col_authorship: 'Ehrh., 1789', col_year: '1789',
-              col_status: 'synonym')
+    context 'that already exists in TaxonWorks' do
+      let(:genus) do
+        FactoryBot.create(:valid_taxon_name, name: 'Homo',
+          rank_class: 'NomenclaturalRank::Iczn::GenusGroup::Genus')
+      end
+      let(:species) do
+        Protonym.create!(name: 'erectus', parent: genus,
+          rank_class: Ranks.lookup(:iczn, :species))
+      end
+
+      it 'is used, not rejected' do
+        rows = [
+          row(col_name: 'Homo', col_rank: 'genus', taxonworks_id: genus.id),
+          row(col_name: 'erectus', col_rank: 'species',
+            taxonworks_id: species.id, col_status: 'synonym')
         ]
-      end
-
-      subject(:result) {
-        described_class.new(rows:, project_id:, user_id:, col_code: 'botanical').call
-      }
-
-      it 'assigns the nearest ICN synonym classification to the target name' do
-        result
-        species = ::TaxonName.find_by(name: 'pedunculata', project_id:)
-        expect(species.taxon_name_classifications.map(&:type))
-          .to include('TaxonNameClassification::Icn::EffectivelyPublished::InvalidlyPublished::AsSynonym')
+        expect(creator(rows).call[:taxon_name_id]).to eq(species.id)
       end
     end
 
-    context 'target reported as accepted' do
+    context 'provisionally accepted' do
       let(:rows) do
         [
           row(col_name: 'Animalia', col_rank: 'kingdom'),
-          row(col_name: 'Homo',     col_rank: 'genus'),
-          row(col_name: 'sapiens',  col_rank: 'species', col_authorship: 'Linnaeus, 1758', col_year: '1758',
-              col_status: 'accepted')
+          row(col_name: 'Homo', col_rank: 'genus',
+            col_status: 'provisionally accepted')
         ]
       end
 
-      subject(:result) {
-        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
-      }
-
-      it 'creates no status classification' do
-        expect { result }.not_to change(::TaxonNameClassification, :count)
+      it 'is created like an accepted name' do
+        expect { creator(rows).call }.to change(::TaxonName, :count).by(2)
       end
     end
 
@@ -341,16 +602,12 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
       let(:rows) do
         [
           row(col_name: 'Animalia', col_rank: 'kingdom'),
-          row(col_name: 'Homo',     col_rank: 'genus', col_status: 'Accepted')
+          row(col_name: 'Homo', col_rank: 'genus', col_status: 'Accepted')
         ]
       end
 
-      subject(:result) {
-        described_class.new(rows:, project_id:, user_id:, col_code: 'zoological').call
-      }
-
-      it 'creates no status classification' do
-        expect { result }.not_to change(::TaxonNameClassification, :count)
+      it 'is created' do
+        expect { creator(rows).call }.to change(::TaxonName, :count).by(2)
       end
     end
   end
@@ -374,19 +631,24 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
   describe '#resolve_rank_class' do
     it 'delegates to Vendor::Colrapi.rank_class_for with @col_code' do
       creator = described_class.new(rows: [], project_id:, user_id:, col_code: 'zoological')
-      expect(::Vendor::Colrapi).to receive(:rank_class_for).with('species', 'zoological').and_call_original
+      expect(::Vendor::Colrapi).to receive(:rank_class_for).with('species', col_code: 'zoological').and_call_original
       expect(creator.send(:resolve_rank_class, 'species')).to include('Iczn')
     end
   end
 
-  # Full behavior coverage for authorship parsing lives in Vendor::Colrapi's
-  # own specs (.split_authorship); this only confirms the delegate wiring,
-  # i.e. that @col_code is threaded through.
+  # Full behavior coverage for authorship parsing lives in
+  # Vendor::Colrapi::NameTranslation's own specs (.split_authorship); this
+  # only confirms the delegate wiring, i.e. that @col_code is threaded through.
   describe '#split_authorship' do
-    it 'delegates to Vendor::Colrapi.split_authorship with @col_code' do
-      creator = described_class.new(rows: [], project_id:, user_id:, col_code: 'zoological')
-      expect(::Vendor::Colrapi).to receive(:split_authorship)
-        .with('(Chatton, 1925) Whittaker & Margulis, 1978', nil, col_code: 'zoological')
+    it 'delegates to NameTranslation.split_authorship with @col_code' do
+      creator = described_class.new(
+        rows: [], project_id:, user_id:, col_code: 'zoological'
+      )
+      expect(::Vendor::Colrapi::NameTranslation).to receive(:split_authorship)
+        .with(
+          '(Chatton, 1925) Whittaker & Margulis, 1978', nil,
+          col_code: 'zoological'
+        )
         .and_call_original
       author, year = creator.send(:split_authorship, '(Chatton, 1925) Whittaker & Margulis, 1978', nil)
       expect(author).to eq('(Chatton)')

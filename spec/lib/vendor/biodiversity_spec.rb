@@ -695,8 +695,7 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
       # authored by its reviver and its priority dates from the revival (Rule
       # 28a, Note 2): the year after the parenthetical. (Reading the
       # parenthetical as a recombination, as
-      # Vendor::Colrapi::NameTranslation.split_authorship does, is wrong for
-      # these.)
+      # Protonym.verbatim_author_and_year does, is wrong for these.)
       xspecify 'finds the reviver\'s year after the parenthetical' do
         expect(parts('(ex Jahn, 1924) Reichenbach 2007')[:year]).to eq(2007)
       end

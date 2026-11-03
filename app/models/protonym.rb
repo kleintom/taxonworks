@@ -184,6 +184,73 @@ class Protonym < TaxonName
     end
   end
 
+  # Splits an authorship citation into
+  # [verbatim_author, year_of_publication].
+  #
+  # Whether the name is still in its original combination is read from the
+  # authorship's form: a parenthetical author means it isn't. That's a
+  # practical rule, not a code's: the string came from who knows where,
+  # built who knows how, and the parenthetical is the only sign of an
+  # earlier combination it can carry. [The codes cite recombinations that
+  # way, but not everything cited that way is one (e.g. ICNP revived names,
+  # "(ex Jahn, 1924) Reichenbach 2007", Rule 33c Note 2).]
+  #
+  # TODO: investigate/fix ICNP recombinations. Their citation, e.g.
+  # Escherichia coli "(Migula) Castellani & Chalmers", isn't storable:
+  # Protonym's closed-parens validation only exempts ICN. Until it is, they
+  # get the original author alone, without parens, so they read as original
+  # combinations (see the xspecs). A fix probably needs that validation to
+  # exempt ICNP too.
+  #
+  # @param authorship [String, nil]
+  # @param current_combination_year [String, Integer, nil] the year of the
+  #   name as currently combined, given apart from the citation. Only used
+  #   when the name is in its original combination and the citation has no
+  #   year. Never used for a recombination: a Protonym takes the original
+  #   name's year, which this isn't.
+  # @param nomenclatural_code [Symbol, nil] the code of the rank the
+  #   Protonym is created at: :iczn, :icn, :icnp, :icvcn
+  # @return [Array(String, Integer), Array(nil, nil)]
+  def self.verbatim_author_and_year(
+    authorship, current_combination_year: nil, nomenclatural_code: nil
+  )
+    return [nil, nil] if authorship.blank?
+
+    current_combination_year = current_combination_year.presence&.to_i
+    parts = ::Vendor::Biodiversity.authorship_parts(authorship)
+    if parts.nil?
+      authorship = ::CGI.unescapeHTML(authorship).strip
+      return [
+        authorship,
+        authorship.start_with?('(') ? nil : current_combination_year
+      ]
+    end
+
+    recombination = parts[:parenthetical_author].present?
+    if recombination
+      original_author = parts[:parenthetical_author]
+      combination_author = parts[:author]
+      year = parts[:parenthetical_year]
+    else
+      original_author = parts[:author]
+      combination_author = nil
+      year = parts[:year] || current_combination_year
+    end
+
+    verbatim_author =
+      if nomenclatural_code == :icnp && recombination
+        # See the ICNP TODO above.
+        original_author
+      else
+        ::Utilities::Nomenclature::VerbatimAuthor.build(
+          original_author:, combination_author:, recombination:,
+          nomenclatural_code:
+        )
+      end
+
+    [verbatim_author, year]
+  end
+
   # TODO: feels like TaxonNames Filter f(n)
   # @param rank full String to match rank_class, like '%genusgroup%' or '%::Family'
   #    scope to names used in taxon determinations

@@ -197,7 +197,7 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
       end
     end
 
-    # See the ICNP TODO on Vendor::Colrapi::NameTranslation.split_authorship.
+    # See the ICNP TODO on Protonym.verbatim_author_and_year.
     context 'ICNP (bacterial) recombination — Escherichia coli example' do
       let(:rows) do
         [

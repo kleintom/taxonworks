@@ -223,4 +223,97 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
     end
   end
 
+  # Parsing and formatting are covered by Vendor::Biodiversity's and
+  # Utilities::Nomenclature::VerbatimAuthor's specs; these cover how they're
+  # combined, current_combination_year and the unparsed fallback. Authorship
+  # strings are Catalogue of Life's (dataset 3LR, 2026-11) for the name noted.
+  context '.verbatim_author_and_year' do
+    specify 'splits "Linnaeus, 1758" into author and year' do
+      expect(Protonym.verbatim_author_and_year('Linnaeus, 1758'))
+        .to eq(['Linnaeus', 1758])
+    end
+
+    specify 'blank authorship is [nil, nil]' do
+      expect(Protonym.verbatim_author_and_year(nil)).to eq([nil, nil])
+      expect(Protonym.verbatim_author_and_year('')).to eq([nil, nil])
+    end
+
+    specify 'falls back to current_combination_year when the authorship ' \
+      'has no year' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          'L.', current_combination_year: '1753'
+        )
+      ).to eq(['L.', 1753])
+    end
+
+    # Pieris rapae
+    specify 'prefers the basionym year over current_combination_year for a ' \
+      'recombination' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          '(Linnaeus, 1758)', current_combination_year: '1900',
+          nomenclatural_code: :iczn
+        )
+      ).to eq(['(Linnaeus)', 1758])
+    end
+
+    specify 'does not fall back to current_combination_year when the ' \
+      'basionym parenthetical has no year' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          '(Moench) Voss', current_combination_year: '1890',
+          nomenclatural_code: :icn
+        )
+      ).to eq(['(Moench) Voss', nil])
+    end
+
+    # See the ICNP TODO on .verbatim_author_and_year.
+    context 'an ICNP recombination' do
+      # Escherichia coli
+      specify 'is currently the original author alone, without parens' do
+        expect(
+          Protonym.verbatim_author_and_year(
+            '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
+            current_combination_year: '1919', nomenclatural_code: :icnp
+          )
+        ).to eq(['Migula', 1895])
+      end
+
+      # Escherichia coli
+      xspecify 'is the whole citation' do
+        expect(
+          Protonym.verbatim_author_and_year(
+            '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
+            current_combination_year: '1919', nomenclatural_code: :icnp
+          )
+        ).to eq(['(Migula) Castellani & Chalmers', 1895])
+      end
+    end
+
+    specify 'returns authorship gnparser finds no authors in as-is' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          'sensu Smith', current_combination_year: '1900'
+        )
+      ).to eq(['sensu Smith', 1900])
+    end
+
+    # gnparser can't parse "Błaszk." yet; see Vendor::Biodiversity.
+    specify 'does not use current_combination_year for a recombination ' \
+      'returned as-is' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          '(Błaszk.) Mirek', current_combination_year: '1990',
+          nomenclatural_code: :icn
+        )
+      ).to eq(['(Błaszk.) Mirek', nil])
+    end
+
+    specify 'decodes HTML entities in authorship returned as-is' do
+      expect(Protonym.verbatim_author_and_year('sensu Smith &amp; Jones'))
+        .to eq(['sensu Smith & Jones', nil])
+    end
+  end
+
 end

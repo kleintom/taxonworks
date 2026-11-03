@@ -129,8 +129,10 @@ module Autoselect
 
             # The rank's code, not @col_code: rank resolution falls back to
             # other codes when @col_code is nil or unrecognised.
-            author, year = ::Vendor::Colrapi::NameTranslation.split_authorship(
-              row[:col_authorship], row[:col_year],
+            # col_year is CoL's combinationAuthorship year, i.e. the
+            # current combination's.
+            author, year = ::Protonym.verbatim_author_and_year(
+              row[:col_authorship], current_combination_year: row[:col_year],
               nomenclatural_code: rank_class.constantize.nomenclatural_code
             )
 

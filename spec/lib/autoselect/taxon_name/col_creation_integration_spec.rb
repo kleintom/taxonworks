@@ -4,7 +4,7 @@ require 'rails_helper'
 # (Autoselect::TaxonName::Levels::CatalogueOfLife, via ColAncestryComparator) and the
 # creation step (Autoselect::TaxonName::CatalogueOfLifeCreator) — specifically the row ordering and
 # reparenting contract between them. Neither class's own spec file exercises this
-# together: catalogue_of_life_spec.rb only checks the computed alignment, col_creator_spec.rb
+# together: catalogue_of_life_spec.rb only checks the computed alignment, catalogue_of_life_creator_spec.rb
 # only checks CatalogueOfLifeCreator given already-built rows. A regression in either one's row-order
 # assumptions about the other would only show up here.
 

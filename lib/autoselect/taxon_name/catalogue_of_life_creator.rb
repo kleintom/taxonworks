@@ -127,8 +127,12 @@ module Autoselect
             # like 'domain').
             next if rank_class.nil?
 
-            author, year =
-              split_authorship(row[:col_authorship], row[:col_year])
+            # The rank's code, not @col_code: rank resolution falls back to
+            # other codes when @col_code is nil or unrecognised.
+            author, year = ::Vendor::Colrapi::NameTranslation.split_authorship(
+              row[:col_authorship], row[:col_year],
+              nomenclatural_code: rank_class.constantize.nomenclatural_code
+            )
 
             begin
               tn = ::TaxonName.create!(
@@ -226,14 +230,6 @@ module Autoselect
       # Returns nil for unknown ranks.
       def resolve_rank_class(rank_string)
         ::Vendor::Colrapi.rank_class_for(rank_string, col_code: @col_code)
-      end
-
-      # Splits a CoL authorship string into
-      # [verbatim_author, year_of_publication].
-      def split_authorship(col_authorship, col_year)
-        ::Vendor::Colrapi::NameTranslation.split_authorship(
-          col_authorship, col_year, col_code: @col_code
-        )
       end
 
     end

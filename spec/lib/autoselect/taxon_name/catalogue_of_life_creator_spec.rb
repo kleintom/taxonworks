@@ -239,6 +239,24 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
       it 'still creates records when col_code is absent' do
         expect { result }.to change(::TaxonName, :count).by(2)
       end
+
+      # Authorship follows the code the rank resolved to, not col_code.
+      context 'with a recombination' do
+        let(:rows) do
+          [
+            row(col_name: 'Animalia', col_rank: 'kingdom'),
+            row(col_name: 'rapae', col_rank: 'species',
+                col_authorship: '(Linnaeus, 1758)')
+          ]
+        end
+
+        it 'stores the ICZN parenthesized author' do
+          result
+          species = ::TaxonName.find_by(name: 'rapae', project_id:)
+          expect(species.verbatim_author).to eq('(Linnaeus)')
+          expect(species.year_of_publication).to eq(1758)
+        end
+      end
     end
 
     context 'when a row has an existing taxonworks_id' do
@@ -649,23 +667,6 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
       creator = described_class.new(rows: [], project_id:, user_id:, col_code: 'zoological')
       expect(::Vendor::Colrapi).to receive(:rank_class_for).with('species', col_code: 'zoological').and_call_original
       expect(creator.send(:resolve_rank_class, 'species')).to include('Iczn')
-    end
-  end
-
-  # Full behavior coverage for authorship parsing lives in
-  # Vendor::Colrapi::NameTranslation's own specs (.split_authorship); this
-  # only confirms the delegate wiring, i.e. that @col_code is threaded through.
-  describe '#split_authorship' do
-    it 'delegates to NameTranslation.split_authorship with @col_code' do
-      creator = described_class.new(
-        rows: [], project_id:, user_id:, col_code: 'zoological'
-      )
-      expect(::Vendor::Colrapi::NameTranslation).to receive(:split_authorship)
-        .with('(Linnaeus, 1758)', nil, col_code: 'zoological')
-        .and_call_original
-      expect(
-        creator.send(:split_authorship, '(Linnaeus, 1758)', nil)
-      ).to eq(['(Linnaeus)', 1758])
     end
   end
 end

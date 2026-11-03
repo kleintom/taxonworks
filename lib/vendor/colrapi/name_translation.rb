@@ -172,38 +172,54 @@ module Vendor
         comparable(name)
       end
 
+      # gnparser parses whole names, not bare authorships, so an authorship
+      # is parsed after this placeholder uninomial.
+      AUTHORSHIP_PARSE_PLACEHOLDER = 'Aus'.freeze
+
+      # gnparser word types that are a publication year.
+      YEAR_WORD_TYPES = %w{YEAR APPROXIMATE_YEAR}.freeze
+
       # Splits a CoL authorship string into
-      # [verbatim_author, year_of_publication].
+      # [verbatim_author, year_of_publication], using gnparser (via the
+      # biodiversity gem) to find the authors and years.
       #
       # TaxonWorks Protonym validates that verbatim_author contains no digits,
       # so the year must be stored separately in year_of_publication.
       #
+      # Author text is sliced verbatim out of col_authorship at gnparser's
+      # word positions, rather than rebuilt from gnparser's author lists,
+      # which normalize author abbreviations (e.g. "Hook.f." -> "Hook. fil.").
+      # Whatever gnparser leaves unparsed at the end (e.g. CoL's "(Approved
+      # Lists 1980)" on ICNP names, or "nom. cons.") isn't kept.
+      #
       # CoL provides authorship in two forms:
-      #   "Linnaeus, 1758" → author "Linnaeus", year 1758
-      #   "(Chatton, 1925) Whittaker & Margulis, 1978" → a recombination: the
+      #   "Linnaeus, 1758" -> author "Linnaeus", year 1758
+      #   "(Chatton, 1925) Whittaker & Margulis, 1978" -> a recombination: the
       #     basionym's author + year in parens, then the current
       #     combination's
       #
       # A Protonym represents the original description, so for a
-      # recombination year_of_publication is always the basionym's year —
-      # even over an explicit col_year (CoL's combinationAuthorship year),
-      # which describes the *current* combination, not the original one. When
-      # the parenthetical carries no year of its own (common in ICN
-      # citations, e.g. "(Drude) Thorne ex Royen"), col_year is the fallback.
+      # recombination year_of_publication is always the basionym's year, and
+      # is nil when the parenthetical has none (common in ICN citations, e.g.
+      # "(Drude) Thorne ex Royen"). col_year (CoL's combinationAuthorship
+      # year) describes the *current* combination, so it's never used for a
+      # recombination; for any other name it's the fallback when the
+      # authorship carries no year.
       #
       # The recombination is signalled with parens on verbatim_author, as
       # TaxonWorks' author rendering expects for each code:
-      #   * ICZN (col_code: 'zoological'): just the basionym author, wrapped,
-      #     e.g. "(Chatton)" — TaxonName#iczn_author_and_year strips and
-      #     re-wraps parens found on verbatim_author, and the combination
-      #     author isn't part of an ICZN citation
-      #   * ICN (col_code: 'botanical'): the whole citation, years removed,
-      #     e.g. "(Drude) Thorne ex Royen" — Protonym's closed-parens
-      #     validation exempts ICN for exactly this, and
-      #     TaxonName#icn_author_and_year renders verbatim_author as-is
+      #   * ICZN: just the basionym author, wrapped, e.g. "(Chatton)" -
+      #     TaxonName#iczn_author_and_year strips and re-wraps parens found on
+      #     verbatim_author, and the combination author isn't part of an ICZN
+      #     citation
+      #   * ICN: the whole citation, years removed, e.g. "(Drude) Thorne ex
+      #     Royen" - Protonym's closed-parens validation exempts ICN for
+      #     exactly this, and TaxonName#icn_author_and_year renders
+      #     verbatim_author as-is
       #
-      # If no year can be extracted at all the author string is returned
-      # as-is with year nil.
+      # When gnparser finds no authorship at all (e.g. "sensu Smith") the
+      # string is returned as-is with col_year; Protonym validation then
+      # reports any digits left in it.
       #
       # TODO: investigate/fix ICNP recombinations. They get the basionym author
       # without parens, so they read as original combinations. CoL cites them
@@ -211,99 +227,92 @@ module Vendor
       # 1919 (Approved Lists 1980)", but Protonym's closed-parens validation
       # only exempts ICN, so "(Migula) Castellani & Chalmers" isn't storable
       # (see the xspecs). A fix probably needs that validation to exempt ICNP
-      # too, plus stripping CoL's "(Approved Lists 1980)" annotation. ICVCN
-      # isn't affected: CoL gives virus names no authorship at all (checked
-      # 2026-11).
+      # too. ICVCN isn't affected: CoL gives virus names no authorship at all
+      # (checked 2026-11).
       #
       # @param col_authorship [String, nil]
       # @param col_year [String, nil]
-      # @param col_code [String, nil] 'zoological', 'botanical', 'bacterial',
-      #   'virus'
+      # @param nomenclatural_code [Symbol, nil] the code of the rank the
+      #   Protonym is created at (NomenclaturalRank.nomenclatural_code): :iczn,
+      #   :icn, :icnp, :icvcn
       # @return [Array(String, Integer), Array(nil, nil)]
-      def self.split_authorship(col_authorship, col_year, col_code: nil)
+      def self.split_authorship(
+        col_authorship, col_year, nomenclatural_code: nil
+      )
         return [nil, nil] if col_authorship.blank?
 
-        # ICZN always carries a year in its authorship citation.
-        if col_code == 'zoological' &&
-            (basionym_match = col_authorship.match(/\A\(([^)]+),\s*(\d{4})\)/))
-          basionym_author = strip_years(basionym_match[1])
-          basionym_author =
-            basionym_author.blank? ? nil : "(#{basionym_author})"
-          return [basionym_author, basionym_match[2].to_i]
+        # gnparser's word positions are into the entity-decoded string.
+        authorship = ::CGI.unescapeHTML(col_authorship).strip
+        name = "#{AUTHORSHIP_PARSE_PLACEHOLDER} #{authorship}"
+        parsed = ::Biodiversity::Parser.parse(name)
+
+        original = parsed.dig(:authorship, :originalAuth)
+        return [authorship, col_year.presence&.to_i] if original.nil?
+
+        words = parsed[:words]
+        year = original.dig(:year, :year)&.to_i
+
+        if !parsed.dig(:authorship, :normalized).to_s.start_with?('(')
+          return [
+            author_text(name, words, 0, name.length),
+            year || col_year.presence&.to_i
+          ]
         end
 
-        # Other codes: the parenthetical's year is optional, and whatever
-        # follows the parenthetical is the current combination's author.
-        if col_code != 'zoological' &&
-            (basionym_match = col_authorship.match(/\A\(([^)]+)\)\s*(.*)\z/))
-          inner = basionym_match[1]
-          basionym_author = strip_trailing_year(inner)
-          basionym_year = extract_year(inner) || col_year.presence&.to_i
+        close_paren = closing_paren_index(
+          name, AUTHORSHIP_PARSE_PLACEHOLDER.length + 1
+        )
+        basionym_author = author_text(name, words, 0, close_paren)
 
-          if basionym_author.present?
-            if col_code == 'botanical'
-              combination_author = strip_years(basionym_match[2])
-              author = "(#{basionym_author}) #{combination_author}".strip
-              return [author, basionym_year]
-            end
-
+        verbatim_author =
+          case nomenclatural_code
+          when :iczn
+            "(#{basionym_author})"
+          when :icn
+            combination_author =
+              author_text(name, words, close_paren, name.length)
+            ["(#{basionym_author})", combination_author].compact.join(' ')
+          else
             # TODO: ICNP lands here too - see the ICNP TODO above.
-            return [basionym_author, basionym_year]
+            basionym_author
           end
+
+        [verbatim_author, year]
+      end
+
+      # The text of the authors in text[from...to], as written: from the first
+      # author word to the last one before any year. So "Smith, 1900 emend.
+      # Jones, 1950" is "Smith".
+      # @param words [Array<Hash>] gnparser's words for text
+      # @return [String, nil]
+      def self.author_text(text, words, from, to)
+        in_range = words.select { |w| w[:start] >= from && w[:end] <= to }
+        first_year =
+          in_range.find { |w| YEAR_WORD_TYPES.include?(w[:wordType]) }
+        authors = in_range.select do |w|
+          w[:wordType].start_with?('AUTHOR_WORD') &&
+            (first_year.nil? || w[:start] < first_year[:start])
         end
+        return nil if authors.empty?
 
-        year = col_year.presence&.to_i
-
-        # Strip any trailing ", YYYY" or " YYYY" from the authorship string.
-        # Also strip years embedded inside parenthetical groups, e.g.
-        # "(Chatton, 1925)".
-        author = strip_years(col_authorship)
-          .gsub(/\(\s*\)/, '') # empty parens left behind
-          .gsub(/,\s*\z/, '') # trailing comma
-          .strip
-          .then { |a|
-            a.match?(/\A\([^)]*\)\z/) ? a : a.gsub(/\([^)]*\)\s*/, '').strip
-          }
-
-        # If no explicit year was given, extract the last 4-digit year from the
-        # string (the combination year, not the basionym year in parentheses).
-        year ||= extract_last_year(col_authorship)
-
-        author = nil if author.blank?
-        [author, year]
+        text[authors.first[:start]...authors.last[:end]]
       end
+      private_class_method :author_text
 
-      # Strips every ", YYYY" / " YYYY" occurrence out of text (e.g. a year
-      # embedded inside a parenthetical group), wherever it appears.
-      # @return [String]
-      def self.strip_years(text)
-        text.gsub(/,?\s*\b\d{4}\b/, '').strip
+      # The index in text of the paren closing the one at open_index, or
+      # text.length when it's never closed (gnparser accepts
+      # "(Linnaeus 1758").
+      # @return [Integer]
+      def self.closing_paren_index(text, open_index)
+        depth = 0
+        (open_index...text.length).each do |i|
+          depth += 1 if text[i] == '('
+          depth -= 1 if text[i] == ')'
+          return i if depth == 0
+        end
+        text.length
       end
-
-      # Strips a single ", YYYY" / " YYYY" occurrence, but only when it's the
-      # last thing in text — leaves years elsewhere (e.g. inside a nested
-      # parenthetical) untouched.
-      # @return [String]
-      def self.strip_trailing_year(text)
-        text.sub(/,?\s*\b\d{4}\b\z/, '').strip
-      end
-
-      # The year at the very end of text, e.g. "Chatton, 1925" → 1925. nil
-      # when text doesn't end in one (e.g. a year-less ICN citation).
-      # @return [Integer, nil]
-      def self.extract_year(text)
-        m = text.match(/,?\s*\b(\d{4})\b\z/)
-        m && m[1].to_i
-      end
-
-      # The last standalone 4-digit year found anywhere in text — a looser
-      # fallback than extract_year for authorship strings where punctuation
-      # around the year is less predictable.
-      # @return [Integer, nil]
-      def self.extract_last_year(text)
-        m = text.scan(/\b(\d{4})\b/).last
-        m && m[0].to_i
-      end
+      private_class_method :closing_paren_index
 
       # A TaxonName found by .candidates_by_key, and which of its forms (see
       # .forms) matched: :current or :published.

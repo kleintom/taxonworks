@@ -99,6 +99,29 @@ describe Vendor::Colrapi::NameTranslation, type: :model do
       ).to eq(['(Moench) Voss', nil])
     end
 
+    # See the ICNP TODO on .split_authorship.
+    context 'an ICNP recombination' do
+      # Escherichia coli
+      specify 'is currently the original author alone, without parens' do
+        expect(
+          t.split_authorship(
+            '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
+            '1919', nomenclatural_code: :icnp
+          )
+        ).to eq(['Migula', 1895])
+      end
+
+      # Escherichia coli
+      xspecify 'is the whole citation' do
+        expect(
+          t.split_authorship(
+            '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
+            '1919', nomenclatural_code: :icnp
+          )
+        ).to eq(['(Migula) Castellani & Chalmers', 1895])
+      end
+    end
+
     specify 'returns authorship gnparser finds no authors in as-is' do
       expect(t.split_authorship('sensu Smith', '1900'))
         .to eq(['sensu Smith', 1900])

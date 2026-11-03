@@ -482,17 +482,17 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
       described_class.authorship_parts(authorship)
     end
 
-    # [original_author, combination_author, year, recombination]
+    # [parenthetical_author, parenthetical_year, author, year]
     def parts_a(authorship)
       parts(authorship)&.values_at(
-        :original_author, :combination_author, :year, :recombination
+        :parenthetical_author, :parenthetical_year, :author, :year
       )
     end
 
     specify 'splits "Linnaeus, 1758" into author and year' do
       expect(parts('Linnaeus, 1758')).to eq(
-        original_author: 'Linnaeus', combination_author: nil, year: 1758,
-        recombination: false
+        parenthetical_author: nil, parenthetical_year: nil,
+        author: 'Linnaeus', year: 1758
       )
     end
 
@@ -512,49 +512,49 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
     context 'text gnparser cleans up' do
       specify 'decodes an entity between authors' do
         expect(parts_a('Castellani &amp; Chalmers, 1919'))
-          .to eq(['Castellani & Chalmers', nil, 1919, false])
+          .to eq([nil, nil, 'Castellani & Chalmers', 1919])
       end
 
       specify 'decodes named entities CGI.unescapeHTML does not' do
         expect(parts_a('H&uuml;bner, 1819'))
-          .to eq(['Hübner', nil, 1819, false])
+          .to eq([nil, nil, 'Hübner', 1819])
       end
 
       specify 'decodes numeric entities' do
         expect(parts_a('H&#252;bner, 1819'))
-          .to eq(['Hübner', nil, 1819, false])
+          .to eq([nil, nil, 'Hübner', 1819])
         expect(parts_a('H&#xFC;bner, 1819'))
-          .to eq(['Hübner', nil, 1819, false])
+          .to eq([nil, nil, 'Hübner', 1819])
       end
 
       specify 'decodes entities on both sides of a recombination' do
         expect(parts_a('(H&uuml;bner, 1819) Smith &amp; Jones, 1900'))
-          .to eq(['Hübner', 'Smith & Jones', 1819, true])
+          .to eq(['Hübner', 1819, 'Smith & Jones', 1900])
       end
 
       specify 'turns non-breaking spaces into spaces' do
         expect(parts_a('Smith&nbsp;&amp;&nbsp;Jones, 1900'))
-          .to eq(['Smith & Jones', nil, 1900, false])
+          .to eq([nil, nil, 'Smith & Jones', 1900])
       end
 
       specify 'removes tags' do
         expect(parts_a('<i>Smith</i>, 1900'))
-          .to eq(['Smith', nil, 1900, false])
+          .to eq([nil, nil, 'Smith', 1900])
       end
 
       specify 'collapses line breaks' do
         expect(parts_a("Smith &\r\nJones, 1900"))
-          .to eq(['Smith & Jones', nil, 1900, false])
+          .to eq([nil, nil, 'Smith & Jones', 1900])
       end
 
       specify 'composes decomposed characters' do
         expect(parts_a("Hu\u0308bner, 1819"))
-          .to eq(['Hübner', nil, 1819, false])
+          .to eq([nil, nil, 'Hübner', 1819])
       end
 
       specify 'collapses repeated spaces' do
         expect(parts_a('  Linnaeus,   1758 '))
-          .to eq(['Linnaeus', nil, 1758, false])
+          .to eq([nil, nil, 'Linnaeus', 1758])
       end
     end
 
@@ -577,45 +577,44 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
       expect(parts('Smith & Jones, 1900')).to be_nil
     end
 
-    context 'a recombination' do
+    context 'a parenthetical author' do
       # Eukaryota
-      specify 'splits original and combination authors, takes the ' \
-        "original's year" do
+      specify 'is split from the author after it, each with its year' do
         expect(parts_a('(Chatton, 1925) Whittaker & Margulis, 1978'))
-          .to eq(['Chatton', 'Whittaker & Margulis', 1925, true])
+          .to eq(['Chatton', 1925, 'Whittaker & Margulis', 1978])
       end
 
       # Pieris rapae
-      specify 'with no combination author' do
+      specify 'with nothing after it' do
         expect(parts_a('(Linnaeus, 1758)'))
-          .to eq(['Linnaeus', nil, 1758, true])
+          .to eq(['Linnaeus', 1758, nil, nil])
       end
 
       # Picea abies
       specify 'keeps abbreviations as written' do
-        expect(parts_a('(L.) H.Karst.')).to eq(['L.', 'H.Karst.', nil, true])
+        expect(parts_a('(L.) H.Karst.')).to eq(['L.', nil, 'H.Karst.', nil])
       end
 
       # Apioideae
       specify 'keeps ex authors' do
         expect(parts_a('(Drude) Thorne ex Royen'))
-          .to eq(['Drude', 'Thorne ex Royen', nil, true])
+          .to eq(['Drude', nil, 'Thorne ex Royen', nil])
       end
 
       # Astonia australiensis. gnparser reads a leading "(Aston)" after a
       # uninomial as a subgenus, so the placeholder name must be a binomial.
-      specify 'finds an original author with no year' do
+      specify 'with no year' do
         expect(parts_a('(Aston) S.W.L.Jacobs'))
-          .to eq(['Aston', 'S.W.L.Jacobs', nil, true])
+          .to eq(['Aston', nil, 'S.W.L.Jacobs', nil])
       end
 
-      # Escherichia coli
+      # Escherichia coli. ICNP Rule 33b Note 3
       specify 'drops the Approved Lists annotation' do
         expect(
           parts_a(
             '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)'
           )
-        ).to eq(['Migula', 'Castellani & Chalmers', 1895, true])
+        ).to eq(['Migula', 1895, 'Castellani & Chalmers', 1919])
       end
     end
 
@@ -624,85 +623,90 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
       # (Coenonympha is "Hübner, 1819"), but other ChecklistBank datasets can
       # carry them.
       specify 'drops a bracketed year' do
-        expect(parts_a('(Hübner, [1819])')).to eq(['Hübner', nil, 1819, true])
-        expect(parts_a('Hübner, [1819]')).to eq(['Hübner', nil, 1819, false])
+        expect(parts_a('(Hübner, [1819])')).to eq(['Hübner', 1819, nil, nil])
+        expect(parts_a('Hübner, [1819]')).to eq([nil, nil, 'Hübner', 1819])
       end
 
       specify 'drops a year with a letter suffix' do
-        expect(parts_a('(Smith, 1900a)')).to eq(['Smith', nil, 1900, true])
+        expect(parts_a('(Smith, 1900a)')).to eq(['Smith', 1900, nil, nil])
       end
 
-      # Leptoceridae
+      # Leptoceridae. ICZN Rec. 51E
       specify 'takes the year of an "in" citation' do
         expect(parts_a('Leach in Brewster, 1815'))
-          .to eq(['Leach in Brewster', nil, 1815, false])
+          .to eq([nil, nil, 'Leach in Brewster', 1815])
       end
 
-      # Not in the 2026-11 3LR sample; a common form for Dejean's names.
+      # Not in the 2026-11 3LR sample; a common form for Dejean's names. The
+      # author after "ex" published the name (ICN Art. 46.5, Madrid Code).
       specify 'takes the year of an "ex" citation' do
         expect(parts_a('Dejean ex Boisduval, 1829'))
-          .to eq(['Dejean ex Boisduval', nil, 1829, false])
+          .to eq([nil, nil, 'Dejean ex Boisduval', 1829])
       end
 
-      # Oxychilidae. Family-group names cite their priority date in parens
-      # (Art. 40.2); the name's own year is the first one.
+      # Oxychilidae. A family-group name kept under ICZN Art. 40.2.1 is
+      # cited with the replaced name's date in parens (Rec. 40A); the name's
+      # own year is the first one.
       specify 'takes the first of two family-group years' do
         expect(parts_a('Hesse, 1927 (1879)'))
-          .to eq(['Hesse', nil, 1927, false])
+          .to eq([nil, nil, 'Hesse', 1927])
       end
 
-      # Enterobacteriaceae
+      # Enterobacteriaceae. ICNP Rule 33b Note 3
       specify 'does not take the Approved Lists year' do
         expect(parts_a('Rahn, 1937 (Approved Lists 1980)'))
-          .to eq(['Rahn', nil, 1937, false])
+          .to eq([nil, nil, 'Rahn', 1937])
       end
     end
 
     specify 'keeps a filius abbreviation as written' do
       expect(parts_a('Hook.f. & Thomson'))
-        .to eq(['Hook.f. & Thomson', nil, nil, false])
+        .to eq([nil, nil, 'Hook.f. & Thomson', nil])
     end
 
     # gnparser finds no authorship in these yet - see the gnparser TODO on
     # .authorship_parts.
     context 'authorship gnparser can not parse yet' do
-      # Yigoga signifera
+      # Yigoga signifera. ICZN Rec. 51D
       xspecify 'keeps a bracketed author' do
         expect(parts_a('[Denis & Schiffermüller], 1775'))
-          .to eq(['[Denis & Schiffermüller]', nil, 1775, false])
+          .to eq([nil, nil, '[Denis & Schiffermüller]', 1775])
       end
 
       # Yezognophos serotinaria
-      xspecify 'keeps a bracketed original author' do
+      xspecify 'keeps a bracketed parenthetical author' do
         expect(parts_a('([Denis & Schiffermüller], 1775)'))
-          .to eq(['[Denis & Schiffermüller]', nil, 1775, true])
+          .to eq(['[Denis & Schiffermüller]', 1775, nil, nil])
       end
 
       # Anaerosinus
       xspecify 'splits an author with an accented letter' do
         expect(parts_a('Strömpl et al., 1999'))
-          .to eq(['Strömpl et al.', nil, 1999, false])
+          .to eq([nil, nil, 'Strömpl et al.', 1999])
       end
 
       # Agathotanais frutosae
       xspecify 'splits authors with Polish letters' do
         expect(parts_a('Stępień, Jakiel & Błażewicz, 2022'))
-          .to eq(['Stępień, Jakiel & Błażewicz', nil, 2022, false])
+          .to eq([nil, nil, 'Stępień, Jakiel & Błażewicz', 2022])
       end
 
-      # Jahnella thaxteri. A revived name (ICNP Rule 28a) is published by its
-      # reviver, so the year is the revival's, not the "ex" author's; how
-      # the authors split waits on the ICNP TODO on
-      # Utilities::Nomenclature::VerbatimAuthor.
-      xspecify 'takes the year an ICNP revived name was revived' do
+      # Jahnella thaxteri. A revived name (cited per ICNP Rule 33c Note 2) is
+      # authored by its reviver and its priority dates from the revival (Rule
+      # 28a, Note 2): the year after the parenthetical. (Reading the
+      # parenthetical as a recombination, as
+      # Vendor::Colrapi::NameTranslation.split_authorship does, is wrong for
+      # these.)
+      xspecify 'finds the reviver\'s year after the parenthetical' do
         expect(parts('(ex Jahn, 1924) Reichenbach 2007')[:year]).to eq(2007)
       end
 
       # Jurundurella
       xspecify 'takes a parenthesized year after "in"' do
         expect(parts_a('Gellert, Błażewicz & Bird in Gellert et al. (2023)'))
-          .to eq(['Gellert, Błażewicz & Bird in Gellert et al.', nil, 2023,
-            false])
+          .to eq(
+            [nil, nil, 'Gellert, Błażewicz & Bird in Gellert et al.', 2023]
+          )
       end
     end
   end

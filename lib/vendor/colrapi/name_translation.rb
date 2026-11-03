@@ -175,6 +175,14 @@ module Vendor
       # Splits a CoL authorship string into
       # [verbatim_author, year_of_publication].
       #
+      # Whether the name is still in its original combination is read from
+      # the authorship's form: a parenthetical author means it isn't. That's
+      # a practical rule, not a code's: the string reached CoL from who knows
+      # where, built who knows how, and the parenthetical is the only sign of
+      # an earlier combination it can carry. The codes cite recombinations
+      # that way, but not everything cited that way is one (e.g. ICNP revived
+      # names, "(ex Jahn, 1924) Reichenbach 2007", Rule 33c Note 2).
+      #
       # A Protonym represents the original description, so for a
       # recombination year_of_publication is always the original name's
       # year, and nil when the citation has none. col_year (CoL's
@@ -184,11 +192,18 @@ module Vendor
       #
       # When gnparser finds no authorship at all (e.g. "sensu Smith") the
       # string is returned as-is with col_year - or with no year when it
-      # starts with "(", i.e. looks like a recombination; Protonym validation
-      # then reports any digits left in it.
+      # starts with "(", i.e. by the same practical rule is a recombination;
+      # Protonym validation then reports any digits left in it.
       #
       # ICVCN isn't affected by any of this: CoL gives virus names no
       # authorship at all (checked 2026-11).
+      #
+      # TODO: investigate/fix ICNP recombinations. Their citation, e.g.
+      # Escherichia coli "(Migula) Castellani & Chalmers", isn't storable:
+      # Protonym's closed-parens validation only exempts ICN. Until it is,
+      # they get the original author alone, without parens, so they read as
+      # original combinations (see the xspecs). A fix probably needs that
+      # validation to exempt ICNP too.
       #
       # @param col_authorship [String, nil]
       # @param col_year [String, nil]
@@ -208,11 +223,27 @@ module Vendor
           return [authorship, authorship.start_with?('(') ? nil : col_year]
         end
 
-        verbatim_author = ::Utilities::Nomenclature::VerbatimAuthor.build(
-          **parts.except(:year), nomenclatural_code:
-        )
-        year = parts[:year]
-        year ||= col_year if !parts[:recombination]
+        recombination = parts[:parenthetical_author].present?
+        if recombination
+          original_author = parts[:parenthetical_author]
+          combination_author = parts[:author]
+          year = parts[:parenthetical_year]
+        else
+          original_author = parts[:author]
+          combination_author = nil
+          year = parts[:year] || col_year
+        end
+
+        verbatim_author =
+          if nomenclatural_code == :icnp && recombination
+            # See the ICNP TODO above.
+            original_author
+          else
+            ::Utilities::Nomenclature::VerbatimAuthor.build(
+              original_author:, combination_author:, recombination:,
+              nomenclatural_code:
+            )
+          end
 
         [verbatim_author, year]
       end

@@ -18,23 +18,40 @@ module Vendor
     # gnparser word types that are a publication year.
     YEAR_WORD_TYPES = %w{YEAR APPROXIMATE_YEAR}.freeze
 
-    # Finds the parts of an authorship citation with gnparser.
+    # Finds the parts of an authorship citation with gnparser, as they're
+    # written.
     #
     # Author text is sliced out of gnparser's verbatim authorship (its own
     # cleaned-up copy of the input: entities decoded, tags removed, ...) at
     # gnparser's word positions, rather than rebuilt from gnparser's author
-    # lists, which normalize author abbreviations (e.g. "Hook.f." -> "Hook.
-    # fil."). Slicing gnparser's own text means we don't have to repeat its
-    # cleanup.
-    # Years are left out of it. Whatever gnparser leaves unparsed at the end
-    # (e.g. "(Approved Lists 1980)" on ICNP names, or "nom. cons.") isn't
-    # kept.
+    # lists (originalAuth etc.). Slicing gnparser's own text means we don't
+    # have to repeat its cleanup. Years are left out of it. Whatever gnparser
+    # leaves unparsed at the end (e.g. "(Approved Lists 1980)" on ICNP names,
+    # Rule 33b Note 3, or "nom. cons.") isn't kept.
     #
-    # For a recombination, e.g. "(Chatton, 1925) Whittaker & Margulis,
-    # 1978", original_author and year come from the parenthetical (year is
-    # nil when it has none, common in ICN citations, e.g. "(Drude) Thorne ex
-    # Royen") and combination_author from what follows it. Otherwise
-    # original_author is the whole author citation.
+    # Why not the author lists: gnparser normalizes them, and normalized
+    # authors aren't what was written:
+    #   * Botanical author abbreviations are standard identifiers (ICN Rec.
+    #     46A; Brummitt & Powell, maintained in IPNI), and gnparser's forms
+    #     aren't the standard ones: "Hook.f." -> "Hook. fil.",
+    #     "S.W.L.Jacobs" -> "S. W. L. Jacobs".
+    #   * Joining the lists back together needs a connector, and the codes
+    #     differ: the ICNP writes "and" (Rule 34b example), the ICN "&" or
+    #     "et" (Rec. 46C.1).
+    #   * Normalized text no longer compares equal to the source it came
+    #     from, e.g. a later check against the same source sees a mismatch
+    #     (Utilities::AuthorNames.same_authorship?("Hook.f. & Thomson",
+    #     "Hook. fil. & Thomson") is false).
+    # Normalizing is a matching/display choice for callers, not something
+    # to bake into the text.
+    #
+    # A citation that leads with a parenthesized author, e.g. "(Chatton,
+    # 1925) Whittaker & Margulis, 1978", gets parenthetical_author
+    # ("Chatton") and parenthetical_year (1925) from inside the parens, and
+    # author ("Whittaker & Margulis") and year (1978) from after them; any of
+    # these may be nil, e.g. "(Linnaeus, 1758)" or "(Drude) Thorne ex
+    # Royen". Any other citation, e.g. "Linnaeus, 1758", has only author and
+    # year.
     #
     # See Utilities::Nomenclature::VerbatimAuthor for turning these into a
     # Protonym's verbatim_author.
@@ -47,17 +64,19 @@ module Vendor
     #     brackets around a year
     #   * some accented letters, depending on their neighbours: "Strömberg"
     #     and "Błaszk." fail while "Hönig" and "Bł" parse
-    #   * ICNP revived names (Rule 28a), e.g. "(ex Jahn, 1924) Reichenbach
-    #     2007" - the reviver publishes the name, so its year is 2007
+    #   * ICNP revived names, cited "(ex Original, year) Reviver year" (Rule
+    #     33c Note 2), e.g. "(ex Jahn, 1924) Reichenbach 2007" - the reviver
+    #     is the name's author and its priority dates from the revival (Rule
+    #     28a, Note 2), so its year is 2007
     #   * a parenthesized year after "in", e.g. "Bird in Gellert et al.
     #     (2023)"
     #
     # @param authorship [String, nil]
     # @return [Hash, nil] {
-    #     original_author: String or nil,
-    #     combination_author: String or nil,
-    #     year: Integer or nil,
-    #     recombination: Boolean
+    #     parenthetical_author: String or nil,
+    #     parenthetical_year: Integer or nil,
+    #     author: String or nil,
+    #     year: Integer or nil
     #   }; nil when authorship is blank or gnparser finds no authorship in it.
     def self.authorship_parts(authorship)
       return nil if authorship.blank?
@@ -69,36 +88,51 @@ module Vendor
       original = parsed.dig(:authorship, :originalAuth)
       return nil if original.nil?
 
+      # gnparser's copy of just the authorship part of the name, after its own
+      # cleanup (entities decoded, tags removed, ...) and without any
+      # unparsed tail. E.g. for "Aus bus (Migula, 1895) Castellani &amp;
+      # Chalmers 1919 (Approved Lists 1980)" it's "(Migula, 1895) Castellani
+      # & Chalmers 1919".
       text = parsed.dig(:authorship, :verbatim)
       words = authorship_words(parsed, text)
       return nil if words.nil?
 
-      # "Leach in Brewster, 1815" and "Dejean ex Boisduval, 1829": the year
-      # is on the in-/ex-authors, the ones who published the name.
-      year = (
-        original.dig(:year, :year) ||
-          original.dig(:inAuthors, :year, :year) ||
-          original.dig(:exAuthors, :year, :year)
-      )&.to_i
-
       if !text.start_with?('(')
         return {
-          original_author: author_text(text, words, 0, text.length),
-          combination_author: nil,
-          year:,
-          recombination: false
+          parenthetical_author: nil,
+          parenthetical_year: nil,
+          author: author_text(text, words, 0, text.length),
+          year: group_year(original)
         }
       end
 
+      # gnparser calls the parenthetical originalAuth and what follows it
+      # combinationAuth.
       close_paren = closing_paren_index(text, 0)
       {
-        original_author: author_text(text, words, 0, close_paren),
-        combination_author:
-          author_text(text, words, close_paren, text.length),
-        year:,
-        recombination: true
+        parenthetical_author: author_text(text, words, 0, close_paren),
+        parenthetical_year: group_year(original),
+        author: author_text(text, words, close_paren, text.length),
+        year: group_year(parsed.dig(:authorship, :combinationAuth))
       }
     end
+
+    # The year of one of gnparser's author groups: its own, or its in- or
+    # ex-authors', the ones who published the name - "Leach in Brewster,
+    # 1815" (ICZN Rec. 51E; ICN Art. 46 Note 2), "Dejean ex Boisduval, 1829"
+    # (ICN Art. 46.5, Madrid Code).
+    # @param group [Hash, nil] e.g. gnparser's originalAuth
+    # @return [Integer, nil]
+    def self.group_year(group)
+      return nil if group.nil?
+
+      (
+        group.dig(:year, :year) ||
+          group.dig(:inAuthors, :year, :year) ||
+          group.dig(:exAuthors, :year, :year)
+      )&.to_i
+    end
+    private_class_method :group_year
 
     # gnparser's author and year words, with their positions moved from the
     # whole parsed name into text, its verbatim authorship. E.g. for "Aus

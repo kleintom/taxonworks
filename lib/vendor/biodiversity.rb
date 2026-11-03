@@ -54,7 +54,8 @@ module Vendor
     #     brackets around a year
     #   * some accented letters, depending on their neighbours: "Strömberg"
     #     and "Błaszk." fail while "Hönig" and "Bł" parse
-    #   * ICNP revived names, e.g. "(ex Jahn, 1924) Reichenbach 2007"
+    #   * ICNP revived names (Rule 28a), e.g. "(ex Jahn, 1924) Reichenbach
+    #     2007" - the reviver publishes the name, so its year is 2007
     #   * a parenthesized year after "in", e.g. "Bird in Gellert et al.
     #     (2023)"
     #
@@ -84,9 +85,12 @@ module Vendor
       return nil if original.nil?
 
       words = parsed[:words]
-      # "Leach in Brewster, 1815": the year is on the in-authors.
+      # "Leach in Brewster, 1815" and "Dejean ex Boisduval, 1829": the year
+      # is on the in-/ex-authors, the ones who published the name.
       year = (
-        original.dig(:year, :year) || original.dig(:inAuthors, :year, :year)
+        original.dig(:year, :year) ||
+          original.dig(:inAuthors, :year, :year) ||
+          original.dig(:exAuthors, :year, :year)
       )&.to_i
 
       if !parsed.dig(:authorship, :normalized).to_s.start_with?('(')

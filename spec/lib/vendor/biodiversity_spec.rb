@@ -544,12 +544,13 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
           .to eq(['Stępień, Jakiel & Błażewicz', 2022])
       end
 
-      # Jahnella thaxteri. The author's form waits on the ICNP TODO; the
-      # year must be the revived name's.
-      xspecify 'takes the year of an ICNP revived name' do
+      # Jahnella thaxteri. The author's form waits on the ICNP TODO. A
+      # revived name (ICNP Rule 28a) is published by its reviver, so the year
+      # is the revival's, not the "ex" author's.
+      xspecify 'takes the year an ICNP revived name was revived' do
         author, year = split('(ex Jahn, 1924) Reichenbach 2007', :icnp)
         expect(author).not_to match(/\d/)
-        expect(year).to eq(1924)
+        expect(year).to eq(2007)
       end
 
       # Jurundurella
@@ -579,6 +580,12 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
       specify 'drops a bracketed year' do
         expect(split('(Hübner, [1819])', :iczn)).to eq(['(Hübner)', 1819])
         expect(split('Hübner, [1819]', :iczn)).to eq(['Hübner', 1819])
+      end
+
+      # Not in the 2026-11 3LR sample; a common form for Dejean's names.
+      specify 'takes the year of an "ex" citation' do
+        expect(split('Dejean ex Boisduval, 1829', :iczn))
+          .to eq(['Dejean ex Boisduval', 1829])
       end
 
       # Leptoceridae

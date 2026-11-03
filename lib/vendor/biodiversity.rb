@@ -2,12 +2,12 @@ module Vendor
 
   # Wraps the biodiversity gem (https://github.com/GlobalNamesArchitecture/biodiversity)
   # Links parsed string results to Protonyms/Combinations in TaxonWorks.
-  #   a = Vendor::Biodiversity::Result.new 
+  #   a = Vendor::Biodiversity::Result.new
   #   a.name = 'Aus bus'
   #   a.parse
   #
   module Biodiversity
-    
+
     RANKS = %i{genus subgenus species subspecies variety form}.freeze
 
     # gnparser parses whole names, not bare authorships, so an authorship
@@ -20,9 +20,12 @@ module Vendor
 
     # Finds the parts of an authorship citation with gnparser.
     #
-    # Author text is sliced verbatim out of authorship at gnparser's word
-    # positions, rather than rebuilt from gnparser's author lists, which
-    # normalize author abbreviations (e.g. "Hook.f." -> "Hook. fil.").
+    # Author text is sliced out of gnparser's verbatim authorship (its own
+    # cleaned-up copy of the input: entities decoded, tags removed, ...) at
+    # gnparser's word positions, rather than rebuilt from gnparser's author
+    # lists, which normalize author abbreviations (e.g. "Hook.f." -> "Hook.
+    # fil."). Slicing gnparser's own text means we don't have to repeat its
+    # cleanup.
     # Years are left out of it. Whatever gnparser leaves unparsed at the end
     # (e.g. "(Approved Lists 1980)" on ICNP names, or "nom. cons.") isn't
     # kept.
@@ -49,23 +52,27 @@ module Vendor
     #   * a parenthesized year after "in", e.g. "Bird in Gellert et al.
     #     (2023)"
     #
-    # @param authorship [String, nil] HTML entities are decoded
-    # @return [Hash, nil] { original_author: String or nil,
-    #   combination_author: String or nil, year: Integer or nil,
-    #   recombination: Boolean }; nil when authorship is blank or gnparser
-    #   finds no authorship in it - nothing is parsed otherwise
+    # @param authorship [String, nil]
+    # @return [Hash, nil] {
+    #     original_author: String or nil,
+    #     combination_author: String or nil,
+    #     year: Integer or nil,
+    #     recombination: Boolean
+    #   }; nil when authorship is blank or gnparser finds no authorship in it.
     def self.authorship_parts(authorship)
       return nil if authorship.blank?
 
-      # gnparser's word positions are into the entity-decoded string.
-      name = "#{AUTHORSHIP_PARSE_PLACEHOLDER} " \
-        "#{::CGI.unescapeHTML(authorship).strip}"
-      parsed = ::Biodiversity::Parser.parse(name)
+      parsed = ::Biodiversity::Parser.parse(
+        "#{AUTHORSHIP_PARSE_PLACEHOLDER} #{authorship}"
+      )
 
       original = parsed.dig(:authorship, :originalAuth)
       return nil if original.nil?
 
-      words = parsed[:words]
+      text = parsed.dig(:authorship, :verbatim)
+      words = authorship_words(parsed, text)
+      return nil if words.nil?
+
       # "Leach in Brewster, 1815" and "Dejean ex Boisduval, 1829": the year
       # is on the in-/ex-authors, the ones who published the name.
       year = (
@@ -74,30 +81,56 @@ module Vendor
           original.dig(:exAuthors, :year, :year)
       )&.to_i
 
-      if !parsed.dig(:authorship, :normalized).to_s.start_with?('(')
+      if !text.start_with?('(')
         return {
-          original_author: author_text(name, words, 0, name.length),
+          original_author: author_text(text, words, 0, text.length),
           combination_author: nil,
           year:,
           recombination: false
         }
       end
 
-      close_paren = closing_paren_index(
-        name, AUTHORSHIP_PARSE_PLACEHOLDER.length + 1
-      )
+      close_paren = closing_paren_index(text, 0)
       {
-        original_author: author_text(name, words, 0, close_paren),
+        original_author: author_text(text, words, 0, close_paren),
         combination_author:
-          author_text(name, words, close_paren, name.length),
+          author_text(text, words, close_paren, text.length),
         year:,
         recombination: true
       }
     end
 
+    # gnparser's author and year words, with their positions moved from the
+    # whole parsed name into text, its verbatim authorship. E.g. for "Aus
+    # bus Castellani &amp; Chalmers, 1919", Chalmers is at 21...29 in
+    # gnparser's cleaned-up name and at 13...21 in text ("Castellani &
+    # Chalmers, 1919"). nil if any word isn't where gnparser says it is -
+    # author text sliced at those positions would be garbled.
+    # @return [Array<Hash>, nil]
+    def self.authorship_words(parsed, text)
+      words = parsed[:words].select do |w|
+        w[:wordType].start_with?('AUTHOR_WORD') ||
+          YEAR_WORD_TYPES.include?(w[:wordType])
+      end
+      return nil if words.empty?
+
+      text_start = text.index(words.first[:verbatim])
+      return nil if text_start.nil?
+
+      shift = words.first[:start] - text_start
+      words = words.map do |w|
+        w.merge(start: w[:start] - shift, end: w[:end] - shift)
+      end
+      return nil if words.any? { |w| text[w[:start]...w[:end]] != w[:verbatim] }
+
+      words
+    end
+    private_class_method :authorship_words
+
     # The text of the authors in text[from...to], as written: from the first
     # author word to the last one before any year. So "Smith, 1900 emend.
-    # Jones, 1950" is "Smith".
+    # Jones, 1950" is "Smith". Whitespace (e.g. a non-breaking space, which
+    # gnparser keeps) is collapsed to single spaces.
     # @param words [Array<Hash>] gnparser's words for text
     # @return [String, nil]
     def self.author_text(text, words, from, to)
@@ -109,7 +142,7 @@ module Vendor
       end
       return nil if authors.empty?
 
-      text[authors.first[:start]...authors.last[:end]]
+      text[authors.first[:start]...authors.last[:end]].squish
     end
     private_class_method :author_text
 
@@ -157,7 +190,7 @@ module Vendor
       # @return [String] the bit after ` in `
       attr_reader :citation
 
-      # @return [Boolean] 
+      # @return [Boolean]
       #   whether or not the query string was succesfully parsed
       attr_reader :parseable
 
@@ -170,14 +203,14 @@ module Vendor
       attr_reader :disambiguated_combination
 
       # @return [Combination]
-      #   a memoized combiantion with only unambiguous elements 
+      #   a memoized combiantion with only unambiguous elements
       attr_reader :combination
 
       # @return [Boolean]
       #   - true, we match on words from verbatim:
       #   - false, we match on words from normalized:
       attr_reader :normalized
-       
+
 
       def initialize(query_string: nil, project_id: nil, code: :iczn, match_mode: :groups, verbatim: false)
         @project_id = project_id
@@ -206,7 +239,7 @@ module Vendor
         rescue NoMethodError => e
           case e.message
           when /canonical/
-            @parseable = false 
+            @parseable = false
           else
             raise
           end
@@ -219,7 +252,7 @@ module Vendor
       # @return [Boolean]
       def parseable
         @parseable = parse_result[:parsed] && parse_result[:tail].blank? if @parseable.nil?
-        @parseable 
+        @parseable
       end
 
       # @return [Array]
@@ -242,7 +275,7 @@ module Vendor
         end
       end
 
-      # @return [String, nil] 
+      # @return [String, nil]
       def subgenus
         if parse_result[:rank] == 'subgen.'
           parse_result.dig(:details, :uninomial, :uninomial)
@@ -278,7 +311,7 @@ module Vendor
 
       # @return [Integer]
       #   the total monominals in the epithet
-      def name_count 
+      def name_count
         (detail[detail.keys.first].keys - [:authorship]).count
       end
 
@@ -318,8 +351,8 @@ module Vendor
 
       # return only references to ambiguous protonyms
       #
-      # Parse 'form' 
-      # Parse 'parse 'Var" 
+      # Parse 'form'
+      # Parse 'parse 'Var"
 
       # @return [Boolean]
       #   true if for each parsed piece of there name there is 1 and only 1 result
@@ -345,10 +378,10 @@ module Vendor
         if protonym_result[rank].size == 2
           n1 = protonym_result[rank].first
           n2 = protonym_result[rank].last
-          return n2 if n2.nominotypical_sub_of?(n1) 
-          return n1 if n1.nominotypical_sub_of?(n2) 
+          return n2 if n2.nominotypical_sub_of?(n1)
+          return n1 if n1.nominotypical_sub_of?(n2)
         end
-        nil 
+        nil
       end
 
       # @return [Array]
@@ -359,7 +392,7 @@ module Vendor
         protonym_result.each do |k, v|
           a.push k if v.count > 1
         end
-        a 
+        a
       end
 
       # @return [Combination]
@@ -383,7 +416,7 @@ module Vendor
 
       # @return [ String, false ]
       #   a wrapper on string returning methods
-      # @param rank [Symbol, String] 
+      # @param rank [Symbol, String]
       #   rank is one of `genus`, `subgenus`, `species, `subspecies`, `variety`, `form`
       def string(rank = nil)
         send(rank)
@@ -506,7 +539,7 @@ module Vendor
         end
       end
 
-      def author_word_position 
+      def author_word_position
         if a = parse_result[:words]
           b = (a.detect { |v| v[:wordType] == 'AUTHOR_WORD'})&.dig(:start)
           p = [name.length, b].compact.min
@@ -527,25 +560,25 @@ module Vendor
 
       # @return [Hash]
       #   `:verbatim` - names that have verbatim supplied, these should be the only names NOT parsed that user is interested in
-      #   `:subgenus` - names that exactly match a subgenus, these are potential new combinations as Genus alone 
+      #   `:subgenus` - names that exactly match a subgenus, these are potential new combinations as Genus alone
       #   `:original_combination` - names that exactly match the original combination
       def other_matches
-        h = { 
+        h = {
           verbatim: [],
-          subgenus: [], 
+          subgenus: [],
           original: []
         }
 
         h[:verbatim] = TaxonName.where(project_id: project_id, cached: name_without_author_year).
           where('verbatim_name is not null').order(:cached).all.to_a if parseable
-        
+
         h[:subgenus] = Protonym.where(
-          project_id: project_id, 
-          name: genus, 
+          project_id: project_id,
+          name: genus,
           rank_class: Ranks.lookup(nomenclature_code, :subgenus)
         ).all.to_a
 
-        h[:original_combination] = Protonym.where(project_id: project_id). 
+        h[:original_combination] = Protonym.where(project_id: project_id).
           where( cached_original_combination: name_without_author_year
                 ).all.to_a if parseable
 

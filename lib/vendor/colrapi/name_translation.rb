@@ -173,9 +173,7 @@ module Vendor
       end
 
       # Splits a CoL authorship string into
-      # [verbatim_author, year_of_publication]: the parts are found by
-      # Vendor::Biodiversity.authorship_parts and verbatim_author is built
-      # from them by Utilities::Nomenclature::VerbatimAuthor.
+      # [verbatim_author, year_of_publication].
       #
       # A Protonym represents the original description, so for a
       # recombination year_of_publication is always the original name's
@@ -187,8 +185,7 @@ module Vendor
       # When gnparser finds no authorship at all (e.g. "sensu Smith") the
       # string is returned as-is with col_year - or with no year when it
       # starts with "(", i.e. looks like a recombination; Protonym validation
-      # then reports any digits left in it. We don't parse it ourselves
-      # instead.
+      # then reports any digits left in it.
       #
       # ICVCN isn't affected by any of this: CoL gives virus names no
       # authorship at all (checked 2026-11).
@@ -216,6 +213,7 @@ module Vendor
         )
         year = parts[:year]
         year ||= col_year if !parts[:recombination]
+
         [verbatim_author, year]
       end
 

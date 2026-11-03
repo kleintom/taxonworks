@@ -505,9 +505,76 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
       expect(parts('sensu Smith')).to be_nil
     end
 
-    specify 'decodes HTML entities' do
-      expect(parts_a('Castellani &amp; Chalmers, 1919'))
-        .to eq(['Castellani & Chalmers', nil, 1919, false])
+    # gnparser cleans up its input before parsing, and author text is
+    # sliced out of its cleaned-up copy. None of these were in the 2026-11
+    # 3LR sample (no entities, tags or line breaks in 4716 authorships), but
+    # other sources have them.
+    context 'text gnparser cleans up' do
+      specify 'decodes an entity between authors' do
+        expect(parts_a('Castellani &amp; Chalmers, 1919'))
+          .to eq(['Castellani & Chalmers', nil, 1919, false])
+      end
+
+      specify 'decodes named entities CGI.unescapeHTML does not' do
+        expect(parts_a('H&uuml;bner, 1819'))
+          .to eq(['Hübner', nil, 1819, false])
+      end
+
+      specify 'decodes numeric entities' do
+        expect(parts_a('H&#252;bner, 1819'))
+          .to eq(['Hübner', nil, 1819, false])
+        expect(parts_a('H&#xFC;bner, 1819'))
+          .to eq(['Hübner', nil, 1819, false])
+      end
+
+      specify 'decodes entities on both sides of a recombination' do
+        expect(parts_a('(H&uuml;bner, 1819) Smith &amp; Jones, 1900'))
+          .to eq(['Hübner', 'Smith & Jones', 1819, true])
+      end
+
+      specify 'turns non-breaking spaces into spaces' do
+        expect(parts_a('Smith&nbsp;&amp;&nbsp;Jones, 1900'))
+          .to eq(['Smith & Jones', nil, 1900, false])
+      end
+
+      specify 'removes tags' do
+        expect(parts_a('<i>Smith</i>, 1900'))
+          .to eq(['Smith', nil, 1900, false])
+      end
+
+      specify 'collapses line breaks' do
+        expect(parts_a("Smith &\r\nJones, 1900"))
+          .to eq(['Smith & Jones', nil, 1900, false])
+      end
+
+      specify 'composes decomposed characters' do
+        expect(parts_a("Hu\u0308bner, 1819"))
+          .to eq(['Hübner', nil, 1819, false])
+      end
+
+      specify 'collapses repeated spaces' do
+        expect(parts_a('  Linnaeus,   1758 '))
+          .to eq(['Linnaeus', nil, 1758, false])
+      end
+    end
+
+    # Guards against a gnparser whose word positions don't match its
+    # verbatim authorship text; a real one has never been seen.
+    specify 'is nil rather than garbled when gnparser words are misplaced' do
+      allow(::Biodiversity::Parser).to receive(:parse).and_return(
+        authorship: {
+          verbatim: 'Smith & Jones, 1900',
+          originalAuth: { authors: %w{Smith Jones}, year: { year: '1900' } }
+        },
+        words: [
+          { verbatim: 'Aus', wordType: 'GENUS', start: 0, end: 3 },
+          { verbatim: 'bus', wordType: 'SPECIES', start: 4, end: 7 },
+          { verbatim: 'Smith', wordType: 'AUTHOR_WORD', start: 8, end: 13 },
+          { verbatim: 'Jones', wordType: 'AUTHOR_WORD', start: 18, end: 23 },
+          { verbatim: '1900', wordType: 'YEAR', start: 25, end: 29 }
+        ]
+      )
+      expect(parts('Smith & Jones, 1900')).to be_nil
     end
 
     context 'a recombination' do

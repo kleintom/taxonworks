@@ -97,6 +97,67 @@ describe Vendor::Colrapi::NameTranslation, type: :model do
         .to eq(['sensu Smith', 1900])
     end
 
+    # gnparser finds no authorship in these yet - see the gnparser TODO on
+    # .split_authorship.
+    context 'authorship gnparser can not parse yet' do
+      # Yigoga signifera
+      xspecify 'keeps a bracketed author' do
+        expect(
+          t.split_authorship(
+            '[Denis & Schiffermüller], 1775', nil, nomenclatural_code: :iczn
+          )
+        ).to eq(['[Denis & Schiffermüller]', 1775])
+      end
+
+      # Yezognophos serotinaria
+      xspecify 'keeps a bracketed basionym author' do
+        expect(
+          t.split_authorship(
+            '([Denis & Schiffermüller], 1775)', nil, nomenclatural_code: :iczn
+          )
+        ).to eq(['([Denis & Schiffermüller])', 1775])
+      end
+
+      # Anaerosinus
+      xspecify 'splits an author with an accented letter' do
+        expect(
+          t.split_authorship(
+            'Strömpl et al., 1999', '1999', nomenclatural_code: :icnp
+          )
+        ).to eq(['Strömpl et al.', 1999])
+      end
+
+      # Agathotanais frutosae
+      xspecify 'splits authors with Polish letters' do
+        expect(
+          t.split_authorship(
+            'Stępień, Jakiel & Błażewicz, 2022', '2022',
+            nomenclatural_code: :iczn
+          )
+        ).to eq(['Stępień, Jakiel & Błażewicz', 2022])
+      end
+
+      # Jahnella thaxteri. The author's form waits on the ICNP TODO; the
+      # year must be the revived name's.
+      xspecify 'takes the year of an ICNP revived name' do
+        author, year = t.split_authorship(
+          '(ex Jahn, 1924) Reichenbach 2007', '2007', nomenclatural_code: :icnp
+        )
+        expect(author).not_to match(/\d/)
+        expect(year).to eq(1924)
+      end
+
+      # Jurundurella
+      xspecify 'takes a parenthesized year after "in"' do
+        expect(
+          t.split_authorship(
+            'Gellert, Błażewicz & Bird in Gellert et al. (2023)', '2023',
+            nomenclatural_code: :iczn
+          )
+        ).to eq(['Gellert, Błażewicz & Bird in Gellert et al.', 2023])
+      end
+    end
+
     # TaxonName#iczn_author_and_year treats a parenthesized verbatim_author
     # as the signal that a Protonym isn't in its original combination.
     context 'nomenclatural_code: :iczn' do
@@ -134,6 +195,25 @@ describe Vendor::Colrapi::NameTranslation, type: :model do
         ).to eq(['Hübner', 1819])
       end
 
+      # Leptoceridae
+      specify 'takes the year of an "in" citation' do
+        expect(
+          t.split_authorship(
+            'Leach in Brewster, 1815', nil, nomenclatural_code: :iczn
+          )
+        ).to eq(['Leach in Brewster', 1815])
+      end
+
+      # Oxychilidae. Family-group names cite their priority date in parens
+      # (Art. 40.2); the name's own year is the first one.
+      specify 'takes the first of two family-group years' do
+        expect(
+          t.split_authorship(
+            'Hesse, 1927 (1879)', nil, nomenclatural_code: :iczn
+          )
+        ).to eq(['Hesse', 1927])
+      end
+
       specify 'drops a year with a letter suffix' do
         expect(
           t.split_authorship('(Smith, 1900a)', nil, nomenclatural_code: :iczn)
@@ -167,6 +247,16 @@ describe Vendor::Colrapi::NameTranslation, type: :model do
         expect(
           t.split_authorship('(Moench) Voss', '1890', nomenclatural_code: :icn)
         ).to eq(['(Moench) Voss', nil])
+      end
+
+      # Astonia australiensis. gnparser reads a leading "(Aston)" after a
+      # uninomial as a subgenus, so the placeholder name must be a binomial.
+      specify 'keeps a basionym author with no year' do
+        expect(
+          t.split_authorship(
+            '(Aston) S.W.L.Jacobs', nil, nomenclatural_code: :icn
+          )
+        ).to eq(['(Aston) S.W.L.Jacobs', nil])
       end
 
       # Quercus robur

@@ -173,8 +173,9 @@ module Vendor
       end
 
       # gnparser parses whole names, not bare authorships, so an authorship
-      # is parsed after this placeholder uninomial.
-      AUTHORSHIP_PARSE_PLACEHOLDER = 'Aus'.freeze
+      # is parsed after this placeholder name. A binomial: after a uninomial
+      # gnparser reads a leading "(Author)" as a subgenus.
+      AUTHORSHIP_PARSE_PLACEHOLDER = 'Aus bus'.freeze
 
       # gnparser word types that are a publication year.
       YEAR_WORD_TYPES = %w{YEAR APPROXIMATE_YEAR}.freeze
@@ -219,7 +220,19 @@ module Vendor
       #
       # When gnparser finds no authorship at all (e.g. "sensu Smith") the
       # string is returned as-is with col_year; Protonym validation then
-      # reports any digits left in it.
+      # reports any digits left in it. We don't parse it ourselves instead.
+      #
+      # TODO: get gnparser (gnames/gnparser) to parse these CoL authorships,
+      # which it currently finds no authorship in (v1.15.0; ~0.4% of a 3LR
+      # sample, 2026-11; see the xspecs):
+      #   * bracketed authors (ICZN Rec. 51D, anonymous works), e.g.
+      #     "[Denis & Schiffermüller], 1775" - the grammar only accepts
+      #     brackets around a year
+      #   * some accented letters, depending on their neighbours: "Strömberg"
+      #     and "Błaszk." fail while "Hönig" and "Bł" parse
+      #   * ICNP revived names, e.g. "(ex Jahn, 1924) Reichenbach 2007"
+      #   * a parenthesized year after "in", e.g. "Bird in Gellert et al.
+      #     (2023)"
       #
       # TODO: investigate/fix ICNP recombinations. They get the basionym author
       # without parens, so they read as original combinations. CoL cites them
@@ -250,7 +263,11 @@ module Vendor
         return [authorship, col_year.presence&.to_i] if original.nil?
 
         words = parsed[:words]
-        year = original.dig(:year, :year)&.to_i
+        # "Leach in Brewster, 1815": the year is on the in-authors.
+        year = (
+          original.dig(:year, :year) ||
+            original.dig(:inAuthors, :year, :year)
+        )&.to_i
 
         if !parsed.dig(:authorship, :normalized).to_s.start_with?('(')
           return [

@@ -159,7 +159,7 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
     end
 
     # ICN keeps the whole citation, parens included, on verbatim_author (see
-    # Vendor::Biodiversity.split_authorship).
+    # Utilities::Nomenclature::VerbatimAuthor).
     context 'ICN (botanical) recombination — Picea glauca example' do
       let(:rows) do
         [
@@ -197,7 +197,7 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
       end
     end
 
-    # See the ICNP TODO on Vendor::Biodiversity.split_authorship.
+    # See the ICNP TODO on Utilities::Nomenclature::VerbatimAuthor.
     context 'ICNP (bacterial) recombination — Escherichia coli example' do
       let(:rows) do
         [

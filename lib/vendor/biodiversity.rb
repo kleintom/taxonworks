@@ -18,33 +18,23 @@ module Vendor
     # gnparser word types that are a publication year.
     YEAR_WORD_TYPES = %w{YEAR APPROXIMATE_YEAR}.freeze
 
-    # Splits an authorship string into a Protonym's verbatim_author and
-    # year_of_publication, using gnparser to find the authors and years.
-    #
-    # Protonym validates that verbatim_author contains no digits, so the year
-    # is returned separately.
+    # Finds the parts of an authorship citation with gnparser.
     #
     # Author text is sliced verbatim out of authorship at gnparser's word
     # positions, rather than rebuilt from gnparser's author lists, which
     # normalize author abbreviations (e.g. "Hook.f." -> "Hook. fil.").
-    # Whatever gnparser leaves unparsed at the end (e.g. "(Approved Lists
-    # 1980)" on ICNP names, or "nom. cons.") isn't kept.
+    # Years are left out of it. Whatever gnparser leaves unparsed at the end
+    # (e.g. "(Approved Lists 1980)" on ICNP names, or "nom. cons.") isn't
+    # kept.
     #
-    # A Protonym represents the original description, so for a
-    # recombination, e.g. "(Chatton, 1925) Whittaker & Margulis, 1978", year
-    # is always the basionym's, and is nil when the parenthetical has none
-    # (common in ICN citations, e.g. "(Drude) Thorne ex Royen").
+    # For a recombination, e.g. "(Chatton, 1925) Whittaker & Margulis,
+    # 1978", original_author and year come from the parenthetical (year is
+    # nil when it has none, common in ICN citations, e.g. "(Drude) Thorne ex
+    # Royen") and combination_author from what follows it. Otherwise
+    # original_author is the whole author citation.
     #
-    # The recombination is signalled with parens on verbatim_author, as
-    # TaxonWorks' author rendering expects for each code:
-    #   * ICZN: just the basionym author, wrapped, e.g. "(Chatton)" -
-    #     TaxonName#iczn_author_and_year strips and re-wraps parens found on
-    #     verbatim_author, and the combination author isn't part of an ICZN
-    #     citation
-    #   * ICN: the whole citation, years removed, e.g. "(Drude) Thorne ex
-    #     Royen" - Protonym's closed-parens validation exempts ICN for
-    #     exactly this, and TaxonName#icn_author_and_year renders
-    #     verbatim_author as-is
+    # See Utilities::Nomenclature::VerbatimAuthor for turning these into a
+    # Protonym's verbatim_author.
     #
     # TODO: get gnparser (gnames/gnparser) to parse these authorships, which
     # it currently finds no authorship in (v1.15.0; ~0.4% of a Catalogue of
@@ -59,21 +49,12 @@ module Vendor
     #   * a parenthesized year after "in", e.g. "Bird in Gellert et al.
     #     (2023)"
     #
-    # TODO: investigate/fix ICNP recombinations. They get the basionym author
-    # without parens, so they read as original combinations. They're cited
-    # like ICN, e.g. Escherichia coli "(Migula, 1895) Castellani & Chalmers
-    # 1919 (Approved Lists 1980)", but Protonym's closed-parens validation
-    # only exempts ICN, so "(Migula) Castellani & Chalmers" isn't storable
-    # (see the xspecs). A fix probably needs that validation to exempt ICNP
-    # too.
-    #
     # @param authorship [String, nil] HTML entities are decoded
-    # @param nomenclatural_code [Symbol, nil] the code of the Protonym's rank
-    #   (NomenclaturalRank.nomenclatural_code): :iczn, :icn, :icnp, :icvcn
-    # @return [Hash, nil] { verbatim_author: String or nil, year: Integer or
-    #   nil, recombination: Boolean }; nil when authorship is blank or
-    #   gnparser finds no authorship in it - nothing is parsed otherwise
-    def self.split_authorship(authorship, nomenclatural_code: nil)
+    # @return [Hash, nil] { original_author: String or nil,
+    #   combination_author: String or nil, year: Integer or nil,
+    #   recombination: Boolean }; nil when authorship is blank or gnparser
+    #   finds no authorship in it - nothing is parsed otherwise
+    def self.authorship_parts(authorship)
       return nil if authorship.blank?
 
       # gnparser's word positions are into the entity-decoded string.
@@ -95,7 +76,8 @@ module Vendor
 
       if !parsed.dig(:authorship, :normalized).to_s.start_with?('(')
         return {
-          verbatim_author: author_text(name, words, 0, name.length),
+          original_author: author_text(name, words, 0, name.length),
+          combination_author: nil,
           year:,
           recombination: false
         }
@@ -104,22 +86,13 @@ module Vendor
       close_paren = closing_paren_index(
         name, AUTHORSHIP_PARSE_PLACEHOLDER.length + 1
       )
-      basionym_author = author_text(name, words, 0, close_paren)
-
-      verbatim_author =
-        case nomenclatural_code
-        when :iczn
-          "(#{basionym_author})"
-        when :icn
-          combination_author =
-            author_text(name, words, close_paren, name.length)
-          ["(#{basionym_author})", combination_author].compact.join(' ')
-        else
-          # TODO: ICNP lands here too - see the ICNP TODO above.
-          basionym_author
-        end
-
-      { verbatim_author:, year:, recombination: true }
+      {
+        original_author: author_text(name, words, 0, close_paren),
+        combination_author:
+          author_text(name, words, close_paren, name.length),
+        year:,
+        recombination: true
+      }
     end
 
     # The text of the authors in text[from...to], as written: from the first

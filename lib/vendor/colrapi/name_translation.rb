@@ -173,12 +173,16 @@ module Vendor
       end
 
       # Splits a CoL authorship string into
-      # [verbatim_author, year_of_publication] - see
-      # Vendor::Biodiversity.split_authorship, which does the parsing.
+      # [verbatim_author, year_of_publication]: the parts are found by
+      # Vendor::Biodiversity.authorship_parts and verbatim_author is built
+      # from them by Utilities::Nomenclature::VerbatimAuthor.
       #
-      # col_year (CoL's combinationAuthorship year) describes the *current*
-      # combination, so it's never used for a recombination; for any other
-      # name it's the fallback when the authorship carries no year.
+      # A Protonym represents the original description, so for a
+      # recombination year_of_publication is always the original name's
+      # year, and nil when the citation has none. col_year (CoL's
+      # combinationAuthorship year) describes the *current* combination, so
+      # it's never used for a recombination; for any other name it's the
+      # fallback when the authorship carries no year.
       #
       # When gnparser finds no authorship at all (e.g. "sensu Smith") the
       # string is returned as-is with col_year - or with no year when it
@@ -201,16 +205,18 @@ module Vendor
         return [nil, nil] if col_authorship.blank?
 
         col_year = col_year.presence&.to_i
-        split = ::Vendor::Biodiversity
-          .split_authorship(col_authorship, nomenclatural_code:)
-        if split.nil?
+        parts = ::Vendor::Biodiversity.authorship_parts(col_authorship)
+        if parts.nil?
           authorship = ::CGI.unescapeHTML(col_authorship).strip
           return [authorship, authorship.start_with?('(') ? nil : col_year]
         end
 
-        year = split[:year]
-        year ||= col_year if !split[:recombination]
-        [split[:verbatim_author], year]
+        verbatim_author = ::Utilities::Nomenclature::VerbatimAuthor.build(
+          **parts.except(:year), nomenclatural_code:
+        )
+        year = parts[:year]
+        year ||= col_year if !parts[:recombination]
+        [verbatim_author, year]
       end
 
       # A TaxonName found by .candidates_by_key, and which of its forms (see

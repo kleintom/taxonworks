@@ -63,8 +63,9 @@ describe Vendor::Colrapi::NameTranslation, type: :model do
     end
   end
 
-  # Parsing itself is covered by Vendor::Biodiversity.split_authorship's
-  # specs; these cover CoL's col_year and the unparsed fallback. Authorship
+  # Parsing and formatting are covered by Vendor::Biodiversity's and
+  # Utilities::Nomenclature::VerbatimAuthor's specs; these cover how they're
+  # combined, CoL's col_year and the unparsed fallback. Authorship
   # strings are CoL's (dataset 3LR, 2026-11) for the name noted.
   context '.split_authorship' do
     specify 'splits "Linnaeus, 1758" into author and year' do

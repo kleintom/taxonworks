@@ -477,191 +477,165 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
 
   # Authorship strings are Catalogue of Life's (dataset 3LR, 2026-11) for
   # the name noted, unless noted otherwise.
-  context '.split_authorship' do
-    # [verbatim_author, year]
-    def split(authorship, nomenclatural_code = nil)
-      described_class.split_authorship(authorship, nomenclatural_code:)
-        &.values_at(:verbatim_author, :year)
+  context '.authorship_parts' do
+    def parts(authorship)
+      described_class.authorship_parts(authorship)
+    end
+
+    # [original_author, combination_author, year, recombination]
+    def parts_a(authorship)
+      parts(authorship)&.values_at(
+        :original_author, :combination_author, :year, :recombination
+      )
     end
 
     specify 'splits "Linnaeus, 1758" into author and year' do
-      expect(split('Linnaeus, 1758')).to eq(['Linnaeus', 1758])
+      expect(parts('Linnaeus, 1758')).to eq(
+        original_author: 'Linnaeus', combination_author: nil, year: 1758,
+        recombination: false
+      )
     end
 
     specify 'blank authorship is nil' do
-      expect(described_class.split_authorship(nil)).to be_nil
-      expect(described_class.split_authorship('')).to be_nil
+      expect(parts(nil)).to be_nil
+      expect(parts('')).to be_nil
     end
 
     specify 'is nil when gnparser finds no authorship' do
-      expect(described_class.split_authorship('sensu Smith')).to be_nil
-    end
-
-    specify 'flags a recombination' do
-      expect(
-        described_class.split_authorship('(Linnaeus, 1758)')[:recombination]
-      ).to be(true)
-      expect(
-        described_class.split_authorship('Linnaeus, 1758')[:recombination]
-      ).to be(false)
-    end
-
-    # Eukaryota
-    specify 'takes the basionym author and year when the code is unknown' do
-      expect(split('(Chatton, 1925) Whittaker & Margulis, 1978'))
-        .to eq(['Chatton', 1925])
+      expect(parts('sensu Smith')).to be_nil
     end
 
     specify 'decodes HTML entities' do
-      expect(split('Castellani &amp; Chalmers, 1919'))
-        .to eq(['Castellani & Chalmers', 1919])
+      expect(parts_a('Castellani &amp; Chalmers, 1919'))
+        .to eq(['Castellani & Chalmers', nil, 1919, false])
     end
 
-    # gnparser finds no authorship in these yet - see the gnparser TODO on
-    # .split_authorship.
-    context 'authorship gnparser can not parse yet' do
-      # Yigoga signifera
-      xspecify 'keeps a bracketed author' do
-        expect(split('[Denis & Schiffermüller], 1775', :iczn))
-          .to eq(['[Denis & Schiffermüller]', 1775])
+    context 'a recombination' do
+      # Eukaryota
+      specify 'splits original and combination authors, takes the ' \
+        "original's year" do
+        expect(parts_a('(Chatton, 1925) Whittaker & Margulis, 1978'))
+          .to eq(['Chatton', 'Whittaker & Margulis', 1925, true])
       end
 
-      # Yezognophos serotinaria
-      xspecify 'keeps a bracketed basionym author' do
-        expect(split('([Denis & Schiffermüller], 1775)', :iczn))
-          .to eq(['([Denis & Schiffermüller])', 1775])
-      end
-
-      # Anaerosinus
-      xspecify 'splits an author with an accented letter' do
-        expect(split('Strömpl et al., 1999', :icnp))
-          .to eq(['Strömpl et al.', 1999])
-      end
-
-      # Agathotanais frutosae
-      xspecify 'splits authors with Polish letters' do
-        expect(split('Stępień, Jakiel & Błażewicz, 2022', :iczn))
-          .to eq(['Stępień, Jakiel & Błażewicz', 2022])
-      end
-
-      # Jahnella thaxteri. The author's form waits on the ICNP TODO. A
-      # revived name (ICNP Rule 28a) is published by its reviver, so the year
-      # is the revival's, not the "ex" author's.
-      xspecify 'takes the year an ICNP revived name was revived' do
-        author, year = split('(ex Jahn, 1924) Reichenbach 2007', :icnp)
-        expect(author).not_to match(/\d/)
-        expect(year).to eq(2007)
-      end
-
-      # Jurundurella
-      xspecify 'takes a parenthesized year after "in"' do
-        expect(
-          split('Gellert, Błażewicz & Bird in Gellert et al. (2023)', :iczn)
-        ).to eq(['Gellert, Błażewicz & Bird in Gellert et al.', 2023])
-      end
-    end
-
-    # TaxonName#iczn_author_and_year treats a parenthesized verbatim_author
-    # as the signal that a Protonym isn't in its original combination.
-    context 'nomenclatural_code: :iczn' do
       # Pieris rapae
-      specify 'wraps the basionym author in parens' do
-        expect(split('(Linnaeus, 1758)', :iczn)).to eq(['(Linnaeus)', 1758])
+      specify 'with no combination author' do
+        expect(parts_a('(Linnaeus, 1758)'))
+          .to eq(['Linnaeus', nil, 1758, true])
       end
 
-      # Homo sapiens
-      specify 'does not add parens for a name in its original combination' do
-        expect(split('Linnaeus, 1758', :iczn)).to eq(['Linnaeus', 1758])
+      # Picea abies
+      specify 'keeps abbreviations as written' do
+        expect(parts_a('(L.) H.Karst.')).to eq(['L.', 'H.Karst.', nil, true])
       end
 
+      # Apioideae
+      specify 'keeps ex authors' do
+        expect(parts_a('(Drude) Thorne ex Royen'))
+          .to eq(['Drude', 'Thorne ex Royen', nil, true])
+      end
+
+      # Astonia australiensis. gnparser reads a leading "(Aston)" after a
+      # uninomial as a subgenus, so the placeholder name must be a binomial.
+      specify 'finds an original author with no year' do
+        expect(parts_a('(Aston) S.W.L.Jacobs'))
+          .to eq(['Aston', 'S.W.L.Jacobs', nil, true])
+      end
+
+      # Escherichia coli
+      specify 'drops the Approved Lists annotation' do
+        expect(
+          parts_a(
+            '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)'
+          )
+        ).to eq(['Migula', 'Castellani & Chalmers', 1895, true])
+      end
+    end
+
+    context 'years' do
       # Bracketed and lettered years aren't in 3LR, which normalizes them
       # (Coenonympha is "Hübner, 1819"), but other ChecklistBank datasets can
       # carry them.
       specify 'drops a bracketed year' do
-        expect(split('(Hübner, [1819])', :iczn)).to eq(['(Hübner)', 1819])
-        expect(split('Hübner, [1819]', :iczn)).to eq(['Hübner', 1819])
+        expect(parts_a('(Hübner, [1819])')).to eq(['Hübner', nil, 1819, true])
+        expect(parts_a('Hübner, [1819]')).to eq(['Hübner', nil, 1819, false])
       end
 
-      # Not in the 2026-11 3LR sample; a common form for Dejean's names.
-      specify 'takes the year of an "ex" citation' do
-        expect(split('Dejean ex Boisduval, 1829', :iczn))
-          .to eq(['Dejean ex Boisduval', 1829])
+      specify 'drops a year with a letter suffix' do
+        expect(parts_a('(Smith, 1900a)')).to eq(['Smith', nil, 1900, true])
       end
 
       # Leptoceridae
       specify 'takes the year of an "in" citation' do
-        expect(split('Leach in Brewster, 1815', :iczn))
-          .to eq(['Leach in Brewster', 1815])
+        expect(parts_a('Leach in Brewster, 1815'))
+          .to eq(['Leach in Brewster', nil, 1815, false])
+      end
+
+      # Not in the 2026-11 3LR sample; a common form for Dejean's names.
+      specify 'takes the year of an "ex" citation' do
+        expect(parts_a('Dejean ex Boisduval, 1829'))
+          .to eq(['Dejean ex Boisduval', nil, 1829, false])
       end
 
       # Oxychilidae. Family-group names cite their priority date in parens
       # (Art. 40.2); the name's own year is the first one.
       specify 'takes the first of two family-group years' do
-        expect(split('Hesse, 1927 (1879)', :iczn)).to eq(['Hesse', 1927])
-      end
-
-      specify 'drops a year with a letter suffix' do
-        expect(split('(Smith, 1900a)', :iczn)).to eq(['(Smith)', 1900])
-      end
-    end
-
-    # TaxonName#icn_author_and_year renders verbatim_author as-is, and
-    # Protonym's closed-parens validation exempts ICN.
-    context 'nomenclatural_code: :icn' do
-      # Picea abies
-      specify 'keeps the whole parenthesized citation, abbreviations as ' \
-        'written' do
-        expect(split('(L.) H.Karst.', :icn)).to eq(['(L.) H.Karst.', nil])
-      end
-
-      # Apioideae
-      specify 'keeps ex authors' do
-        expect(split('(Drude) Thorne ex Royen', :icn))
-          .to eq(['(Drude) Thorne ex Royen', nil])
-      end
-
-      # Astonia australiensis. gnparser reads a leading "(Aston)" after a
-      # uninomial as a subgenus, so the placeholder name must be a binomial.
-      specify 'keeps a basionym author with no year' do
-        expect(split('(Aston) S.W.L.Jacobs', :icn))
-          .to eq(['(Aston) S.W.L.Jacobs', nil])
-      end
-
-      # Quercus robur
-      specify 'does not add parens for a name in its original combination' do
-        expect(split('L.', :icn)).to eq(['L.', nil])
-      end
-
-      specify 'keeps a filius abbreviation as written' do
-        expect(split('Hook.f. & Thomson', :icn))
-          .to eq(['Hook.f. & Thomson', nil])
-      end
-    end
-
-    # See the ICNP TODO on .split_authorship.
-    context 'nomenclatural_code: :icnp' do
-      # Escherichia coli
-      xspecify 'keeps the whole parenthesized citation, without years or ' \
-        'the Approved Lists annotation' do
-        expect(
-          split(
-            '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
-            :icnp
-          )
-        ).to eq(['(Migula) Castellani & Chalmers', 1895])
-      end
-
-      # Staphylococcus aureus
-      specify 'drops the Approved Lists annotation from a name in its ' \
-        'original combination' do
-        expect(split('Rosenbach, 1884 (Approved Lists 1980)', :icnp))
-          .to eq(['Rosenbach', 1884])
+        expect(parts_a('Hesse, 1927 (1879)'))
+          .to eq(['Hesse', nil, 1927, false])
       end
 
       # Enterobacteriaceae
       specify 'does not take the Approved Lists year' do
-        expect(split('Rahn, 1937 (Approved Lists 1980)', :icnp))
-          .to eq(['Rahn', 1937])
+        expect(parts_a('Rahn, 1937 (Approved Lists 1980)'))
+          .to eq(['Rahn', nil, 1937, false])
+      end
+    end
+
+    specify 'keeps a filius abbreviation as written' do
+      expect(parts_a('Hook.f. & Thomson'))
+        .to eq(['Hook.f. & Thomson', nil, nil, false])
+    end
+
+    # gnparser finds no authorship in these yet - see the gnparser TODO on
+    # .authorship_parts.
+    context 'authorship gnparser can not parse yet' do
+      # Yigoga signifera
+      xspecify 'keeps a bracketed author' do
+        expect(parts_a('[Denis & Schiffermüller], 1775'))
+          .to eq(['[Denis & Schiffermüller]', nil, 1775, false])
+      end
+
+      # Yezognophos serotinaria
+      xspecify 'keeps a bracketed original author' do
+        expect(parts_a('([Denis & Schiffermüller], 1775)'))
+          .to eq(['[Denis & Schiffermüller]', nil, 1775, true])
+      end
+
+      # Anaerosinus
+      xspecify 'splits an author with an accented letter' do
+        expect(parts_a('Strömpl et al., 1999'))
+          .to eq(['Strömpl et al.', nil, 1999, false])
+      end
+
+      # Agathotanais frutosae
+      xspecify 'splits authors with Polish letters' do
+        expect(parts_a('Stępień, Jakiel & Błażewicz, 2022'))
+          .to eq(['Stępień, Jakiel & Błażewicz', nil, 2022, false])
+      end
+
+      # Jahnella thaxteri. A revived name (ICNP Rule 28a) is published by its
+      # reviver, so the year is the revival's, not the "ex" author's; how
+      # the authors split waits on the ICNP TODO on
+      # Utilities::Nomenclature::VerbatimAuthor.
+      xspecify 'takes the year an ICNP revived name was revived' do
+        expect(parts('(ex Jahn, 1924) Reichenbach 2007')[:year]).to eq(2007)
+      end
+
+      # Jurundurella
+      xspecify 'takes a parenthesized year after "in"' do
+        expect(parts_a('Gellert, Błażewicz & Bird in Gellert et al. (2023)'))
+          .to eq(['Gellert, Błażewicz & Bird in Gellert et al.', nil, 2023,
+            false])
       end
     end
   end

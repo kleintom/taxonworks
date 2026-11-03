@@ -103,6 +103,13 @@ describe Vendor::Colrapi::NameTranslation, type: :model do
         .to eq(['sensu Smith', 1900])
     end
 
+    # gnparser can't parse "Błaszk." yet; see Vendor::Biodiversity.
+    specify 'does not use col_year for a recombination returned as-is' do
+      expect(
+        t.split_authorship('(Błaszk.) Mirek', '1990', nomenclatural_code: :icn)
+      ).to eq(['(Błaszk.) Mirek', nil])
+    end
+
     specify 'decodes HTML entities in authorship returned as-is' do
       expect(t.split_authorship('sensu Smith &amp; Jones', nil))
         .to eq(['sensu Smith & Jones', nil])

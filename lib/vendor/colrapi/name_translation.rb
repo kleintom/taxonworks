@@ -181,8 +181,10 @@ module Vendor
       # name it's the fallback when the authorship carries no year.
       #
       # When gnparser finds no authorship at all (e.g. "sensu Smith") the
-      # string is returned as-is with col_year; Protonym validation then
-      # reports any digits left in it. We don't parse it ourselves instead.
+      # string is returned as-is with col_year - or with no year when it
+      # starts with "(", i.e. looks like a recombination; Protonym validation
+      # then reports any digits left in it. We don't parse it ourselves
+      # instead.
       #
       # ICVCN isn't affected by any of this: CoL gives virus names no
       # authorship at all (checked 2026-11).
@@ -202,7 +204,8 @@ module Vendor
         split = ::Vendor::Biodiversity
           .split_authorship(col_authorship, nomenclatural_code:)
         if split.nil?
-          return [::CGI.unescapeHTML(col_authorship).strip, col_year]
+          authorship = ::CGI.unescapeHTML(col_authorship).strip
+          return [authorship, authorship.start_with?('(') ? nil : col_year]
         end
 
         year = split[:year]

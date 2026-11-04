@@ -187,14 +187,6 @@ class Protonym < TaxonName
   # Splits an authorship citation into
   # [verbatim_author, year_of_publication].
   #
-  # Whether the name is still in its original combination is read from the
-  # authorship's form: a parenthetical author means it isn't. That's a
-  # practical rule, not a code's: the string came from who knows where,
-  # built who knows how, and the parenthetical is the only sign of an
-  # earlier combination it can carry. [The codes cite recombinations that
-  # way, but not everything cited that way is one (e.g. ICNP revived names,
-  # "(ex Jahn, 1924) Reichenbach 2007", Rule 33c Note 2).]
-  #
   # @param authorship [String, nil]
   # @param current_combination_year [String, Integer, nil] the year of the
   #   name as currently combined, given apart from the citation. Only used
@@ -215,6 +207,7 @@ class Protonym < TaxonName
       authorship = ::CGI.unescapeHTML(authorship).strip
       return [
         authorship,
+        # best effort:
         authorship.start_with?('(') ? nil : current_combination_year
       ]
     end

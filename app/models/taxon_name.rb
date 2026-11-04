@@ -984,7 +984,9 @@ class TaxonName < ApplicationRecord
         return $1
       end
     when *::Utilities::Nomenclature::AuthorCitation::CITES_COMBINATION_AUTHOR
-      # TODO: example text in spec
+      # Only the basionym author, from inside the parens, like this:
+      # (Seub.) Lowden -> Seub.
+      # (Migula) Castellani & Chalmers -> Migula
       if matchdata1 = cached_author_year.match(/(\(.*\))/)
         return matchdata1[1].gsub(/^\(|\)/, '')
       end

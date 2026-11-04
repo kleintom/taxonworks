@@ -195,13 +195,6 @@ class Protonym < TaxonName
   # way, but not everything cited that way is one (e.g. ICNP revived names,
   # "(ex Jahn, 1924) Reichenbach 2007", Rule 33c Note 2).]
   #
-  # TODO: investigate/fix ICNP recombinations. Their citation, e.g.
-  # Escherichia coli "(Migula) Castellani & Chalmers", isn't storable:
-  # Protonym's closed-parens validation only exempts ICN. Until it is, they
-  # get the original author alone, without parens, so they read as original
-  # combinations (see the xspecs). A fix probably needs that validation to
-  # exempt ICNP too.
-  #
   # @param authorship [String, nil]
   # @param current_combination_year [String, Integer, nil] the year of the
   #   name as currently combined, given apart from the citation. Only used
@@ -239,7 +232,15 @@ class Protonym < TaxonName
 
     verbatim_author =
       if nomenclatural_code == :icnp && recombination
-        # See the ICNP TODO above.
+        # TODO: investigate/fix ICNP recombinations. Their citation (Rules
+        # 34b, 34c), e.g. Escherichia coli "(Migula) Castellani & Chalmers",
+        # isn't storable: Protonym's closed-parens validation only exempts
+        # ICN. Until it is, they get the original author alone, without
+        # parens, so they read as original combinations (is_original_name?
+        # and the is_original_name scope test for a leading paren; see the
+        # xspecs). A fix needs that validation to exempt ICNP too, and
+        # TaxonName#original_author_year to strip the parens for :icnp as
+        # it does for :icn.
         original_author
       else
         ::Utilities::Nomenclature::VerbatimAuthor.build(

@@ -420,6 +420,11 @@ class OtusController < ApplicationController
 
   # GET /api/v1/otus/:id/inventory/type_material
   def api_type_material_inventory
+    @type_materials = TypeMaterial.where(protonym_id: @otu.taxon_name&.valid_taxon_name&.historical_taxon_names&.select(:id))
+      .joins(:protonym)
+      .preload(:protonym, collection_object: [:collecting_event, :repository, :dwc_occurrence, :biocuration_classes, :identifiers])
+      .order('taxon_names.cached_is_valid DESC, taxon_names.cached_nomenclature_date, type_materials.id')
+
     render '/otus/api/v1/inventory/type_material'
   end
 
@@ -458,6 +463,10 @@ class OtusController < ApplicationController
       end
 
       format.geojson do
+        if params[:coordinate_otus] == 'false'
+          @otus = Otu.where(id: @otu.id)
+          render :distribution_by_otus
+        end
       end
     end
   end
@@ -485,6 +494,10 @@ class OtusController < ApplicationController
         render '/otus/api/v1/inventory/distribution'
       end
       format.geojson do
+        if params[:coordinate_otus] == 'false'
+          @otus = Otu.where(id: @otu.id)
+          render '/otus/distribution_by_otus' and return
+        end
         render '/otus/api/v1/inventory/distribution'
       end
     end
@@ -573,6 +586,10 @@ class OtusController < ApplicationController
     @descendants = params[:descendants] == 'true'
     respond_to do |format|
       format.geojson do
+        if params[:coordinate_otus] == 'false'
+          @otus = Otu.where(id: @otu.id)
+          render :distribution_is_absent_by_otus
+        end
       end
     end
   end
@@ -596,6 +613,10 @@ class OtusController < ApplicationController
     @descendants = params[:descendants] == 'true'
     respond_to do |format|
       format.geojson do
+        if params[:coordinate_otus] == 'false'
+          @otus = Otu.where(id: @otu.id)
+          render '/otus/distribution_is_absent_by_otus' and return
+        end
         render '/otus/api/v1/inventory/distribution_is_absent'
       end
     end

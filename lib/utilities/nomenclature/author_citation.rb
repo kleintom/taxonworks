@@ -14,6 +14,48 @@ module Utilities::Nomenclature::AuthorCitation
   # on citing authors; it's cited as the ICN is, as TaxonWorks always has.
   CITES_COMBINATION_AUTHOR = %i{icn icnp icvcn}.freeze
 
+  # Whether a citation, as written, is of a name no longer in its original
+  # combination: it leads with a parenthetical, the original name's author,
+  # e.g. "(Linnaeus, 1758)", "(Moench) Voss", or "(Sahlberg, 1871) non
+  # Boheman, 1852".
+  #
+  # A practical rule, not a code's: a citation from elsewhere was built who
+  # knows how, and the parenthetical is the only sign of an earlier
+  # combination it can carry. [The codes cite recombinations that way, but
+  # not everything cited that way is one (e.g. ICNP revived names, "(ex
+  # Jahn, 1924) Reichenbach 2007", Rule 33c Note 2).]
+  # @param citation [String]
+  # @return [Boolean]
+  def self.recombination_form?(citation)
+    citation.start_with?('(')
+  end
+
+  # What a citation's parts say about the name, by the rule in
+  # recombination_form?: a parenthetical author is the original name's
+  # author, and what follows it the author of the current combination.
+  # @param parenthetical_author [String, nil] the citation's leading
+  #   parenthetical, e.g. "Chatton"
+  # @param parenthetical_year [Integer, nil] its year, e.g. 1925
+  # @param author [String, nil] the rest of the citation, or the whole
+  #   citation when it has no parenthetical, e.g. "Whittaker & Margulis"
+  # @param year [Integer, nil] its year, e.g. 1978
+  # @return [Hash] { original_author:, original_year:, combination_author:,
+  #   recombination: }
+  def self.interpret(parenthetical_author:, parenthetical_year:, author:, year:)
+    if parenthetical_author.nil? || parenthetical_author.empty?
+      {
+        original_author: author, original_year: year,
+        combination_author: nil, recombination: false
+      }
+    else
+      {
+        original_author: parenthetical_author,
+        original_year: parenthetical_year,
+        combination_author: author, recombination: true
+      }
+    end
+  end
+
   # @param original_author [String, nil] the author(s) of the original
   #   name, e.g. "Chatton", optionally with its year, e.g. "Chatton, 1925";
   #   for a name in its original combination, the whole author citation,

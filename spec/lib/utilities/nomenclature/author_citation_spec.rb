@@ -106,6 +106,49 @@ describe Utilities::Nomenclature::AuthorCitation do
     ).to eq('(Linnaeus, 1758)')
   end
 
+  context '.recombination_form?' do
+    specify 'a citation leading with a parenthetical' do
+      [
+        '(Linnaeus, 1758)', '(Moench) Voss',
+        '(Sahlberg, 1871) non Boheman, 1852'
+      ].each { |c| expect(v.recombination_form?(c)).to be true }
+    end
+
+    specify 'any other citation' do
+      ['Linnaeus, 1758', 'auct. non (L.) Benth.', 'Retz. (fruit)']
+        .each { |c| expect(v.recombination_form?(c)).to be false }
+    end
+  end
+
+  context '.interpret' do
+    # Eukaryota
+    specify 'a parenthetical author is the original author of a ' \
+      'recombination' do
+      expect(
+        v.interpret(
+          parenthetical_author: 'Chatton', parenthetical_year: 1925,
+          author: 'Whittaker & Margulis', year: 1978
+        )
+      ).to eq(
+        original_author: 'Chatton', original_year: 1925,
+        combination_author: 'Whittaker & Margulis', recombination: true
+      )
+    end
+
+    specify 'with no parenthetical author, the author is the original ' \
+      'author' do
+      expect(
+        v.interpret(
+          parenthetical_author: nil, parenthetical_year: nil,
+          author: 'Linnaeus', year: 1758
+        )
+      ).to eq(
+        original_author: 'Linnaeus', original_year: 1758,
+        combination_author: nil, recombination: false
+      )
+    end
+  end
+
   # Citations from real names.
   context '.original_author' do
     {

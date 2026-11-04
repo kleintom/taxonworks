@@ -297,6 +297,19 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
       ).to eq(['(Błaszk.) Mirek', nil])
     end
 
+    # gnparser can't parse bracketed authors yet; see Vendor::Biodiversity.
+    # A recombination whatever follows the parentheses (here a
+    # misapplication), so the original combination's year isn't used.
+    specify 'does not use current_combination_year for an :iczn ' \
+      'recombination with a qualifier returned as-is' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          '([Denis & Schiffermüller], 1775) non Hübner, 1796',
+          current_combination_year: '1900', nomenclatural_code: :iczn
+        )
+      ).to eq(['([Denis & Schiffermüller], 1775) non Hübner, 1796', nil])
+    end
+
     specify 'decodes HTML entities in authorship returned as-is' do
       expect(Protonym.verbatim_author_and_year('sensu Smith &amp; Jones'))
         .to eq(['sensu Smith & Jones', nil])

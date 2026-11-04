@@ -205,28 +205,20 @@ class Protonym < TaxonName
     parts = ::Vendor::Biodiversity.authorship_parts(authorship)
     if parts.nil?
       authorship = ::CGI.unescapeHTML(authorship).strip
-      return [
-        authorship,
-        # best effort:
-        authorship.start_with?('(') ? nil : current_combination_year
-      ]
+      recombination =
+        ::Utilities::Nomenclature::AuthorCitation
+          .recombination_form?(authorship)
+      # best effort:
+      return [authorship, recombination ? nil : current_combination_year]
     end
 
-    recombination = parts[:parenthetical_author].present?
-    if recombination
-      original_author = parts[:parenthetical_author]
-      combination_author = parts[:author]
-      year = parts[:parenthetical_year]
-    else
-      original_author = parts[:author]
-      combination_author = nil
-      year = parts[:year] || current_combination_year
-    end
-
+    cited = ::Utilities::Nomenclature::AuthorCitation.interpret(**parts)
     verbatim_author = ::Utilities::Nomenclature::AuthorCitation.build(
-      original_author:, combination_author:, recombination:,
-      nomenclatural_code:
+      **cited.except(:original_year), nomenclatural_code:
     )
+
+    year = cited[:original_year]
+    year ||= current_combination_year if !cited[:recombination]
 
     [verbatim_author, year]
   end

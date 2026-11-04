@@ -106,6 +106,35 @@ describe Utilities::Nomenclature::AuthorCitation do
     ).to eq('(Linnaeus, 1758)')
   end
 
+  # Citations from real names.
+  context '.original_author' do
+    {
+      iczn: {
+        '(Baker, 1899)' => 'Baker, 1899',
+        '(Baker, 1899) non Gillette, 1898' => nil,
+        'Baker, 1899' => nil
+      },
+      icn: {
+        '(Seub.) Lowden' => 'Seub.',
+        '(Douglas ex D. Don) Lindley (1833)' => 'Douglas ex D. Don',
+        '(Wall.) (1831)' => 'Wall.',
+        'auct. non (L.) Benth.' => nil,
+        'Retz. (fruit)' => nil,
+        'Moench (pro sp.) [deltoides × nigra]' => nil,
+        'Lemmon (1892)' => nil
+      },
+      icnp: { '(Migula) Castellani & Chalmers' => 'Migula' },
+      icvcn: { '(Migula) Castellani & Chalmers' => 'Migula' },
+      nil => { '(Baker, 1899)' => nil }
+    }.each do |code, citations|
+      citations.each do |citation, expected|
+        specify "#{code.inspect} #{citation} -> #{expected.inspect}" do
+          expect(v.original_author(code, citation)).to eq(expected)
+        end
+      end
+    end
+  end
+
   context '.well_formed?' do
     specify ':iczn and no code allow wholly parenthesized or no parens' do
       [:iczn, nil].each do |code|

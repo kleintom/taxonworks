@@ -969,31 +969,14 @@ class TaxonName < ApplicationRecord
   #   !!    i.e. it currently differs from cached_author + cached_nomenclature_date.year
   def original_author_year
     return nil unless cached_author_year
-
-    case nomenclatural_code
-    when :iczn
-
-      # Only remove if first and last paren if like this:
-      # (Baker, 1899)
-      # Not like this:
-      # (Baker, 1899) non Gillette, 1898
-
-      return cached_author_year if cached_misspelling
-
-      if cached_author_year =~ /^\((.*)\)$/
-        return $1
-      end
-    when *::Utilities::Nomenclature::AuthorCitation::CITES_COMBINATION_AUTHOR
-      # Only the basionym author, from inside the parens, like this:
-      # (Seub.) Lowden -> Seub.
-      # (Migula) Castellani & Chalmers -> Migula
-      if matchdata1 = cached_author_year.match(/(\(.*\))/)
-        return matchdata1[1].gsub(/^\(|\)/, '')
-      end
+    if nomenclatural_code == :iczn && cached_misspelling
+      return cached_author_year
     end
 
     # This means that misaplied or misspelled names return cached author year
-    cached_author_year
+    Utilities::Nomenclature::AuthorCitation
+      .original_author(nomenclatural_code, cached_author_year) ||
+      cached_author_year
   end
 
   # @return [Array of TaxonName] ancestors of type 'Protonym'

@@ -55,6 +55,31 @@ module Utilities::Nomenclature::AuthorCitation
     end
   end
 
+  # The inverse of recombination: the original author (and year, if it's
+  # inside the parentheses) from a citation in the code's recombination
+  # form, or nil when the citation isn't in that form.
+  # @param nomenclatural_code [Symbol, nil] :iczn, :icn, :icnp, :icvcn
+  # @param citation [String] e.g. a TaxonName's cached_author_year
+  # @return [String, nil]
+  def self.original_author(nomenclatural_code, citation)
+    case nomenclatural_code
+    when :iczn
+      # The whole citation in parentheses, like this:
+      # (Baker, 1899) -> Baker, 1899
+      # Not with anything after them, like this:
+      # (Baker, 1899) non Gillette, 1898
+      citation[/\A\((.*)\)\z/, 1]
+    when *CITES_COMBINATION_AUTHOR
+      # A leading parenthetical, like this:
+      # (Seub.) Lowden -> Seub.
+      # (Migula) Castellani & Chalmers -> Migula
+      # Not a parenthetical elsewhere, like this:
+      # auct. non (L.) Benth.
+      # Retz. (fruit)
+      citation[/\A\(([^()]+)\)/, 1]
+    end
+  end
+
   # Whether verbatim_author has a form build could have written for the
   # code: for the ICZN (and no code) either wholly in parentheses or with
   # none at all, "(Chatton)" or "Chatton"; for codes that cite the

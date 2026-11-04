@@ -130,6 +130,23 @@ describe TaxonName, type: :model, group: [:nomenclature] do
           expect(t.original_author_year).to eq('Migula')
         end
       end
+
+      # cached_author_years from real ICN names.
+      context 'ICN original_author_year' do
+        {
+          '(Douglas ex D. Don) Lindley (1833)' => 'Douglas ex D. Don',
+          'auct. non (L.) Benth.' => 'auct. non (L.) Benth.',
+          'Lemmon (1892)' => 'Lemmon (1892)'
+        }.each do |cached_author_year, expected|
+          specify "#{cached_author_year} -> #{expected}" do
+            t = Protonym.new(
+              rank_class: 'NomenclaturalRank::Icn::GenusGroup::Genus',
+              cached_author_year:
+            )
+            expect(t.original_author_year).to eq(expected)
+          end
+        end
+      end
     end
 
     specify '#descendants_of' do

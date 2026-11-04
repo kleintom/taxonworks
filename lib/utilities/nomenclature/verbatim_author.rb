@@ -28,7 +28,21 @@ module Utilities::Nomenclature::VerbatimAuthor
     original_author:, combination_author: nil, recombination: false,
     nomenclatural_code: nil
   )
-    return original_author if original_author.nil? || !recombination
+    return original_author if !recombination
+
+    self.recombination(nomenclatural_code, original_author, combination_author)
+  end
+
+  # build for a name known to be a recombination, e.g. one whose original
+  # combination is known from its relationships.
+  # @param nomenclatural_code [Symbol, nil] :iczn, :icn, :icnp, :icvcn
+  # @param original_author [String, nil] as for build
+  # @param combination_author [String, nil] as for build
+  # @return [String, nil] original_author as-is when it's nil or empty
+  def self.recombination(
+    nomenclatural_code, original_author, combination_author = nil
+  )
+    return original_author if original_author.nil? || original_author.empty?
 
     case nomenclatural_code
     when :iczn

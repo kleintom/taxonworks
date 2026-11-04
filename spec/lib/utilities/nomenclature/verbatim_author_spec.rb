@@ -25,6 +25,18 @@ describe Utilities::Nomenclature::VerbatimAuthor do
     ).to be_nil
   end
 
+  context '.recombination' do
+    specify 'is build for a recombination' do
+      expect(v.recombination(:icn, 'Moench', 'Voss')).to eq('(Moench) Voss')
+      expect(v.recombination(:iczn, 'Chatton')).to eq('(Chatton)')
+    end
+
+    specify 'an empty original author is returned as-is' do
+      expect(v.recombination(:iczn, '')).to eq('')
+      expect(v.recombination(:icn, '', 'Voss')).to eq('')
+    end
+  end
+
   # ICZN Art. 51.3, Rec. 51G
   context ':iczn recombination' do
     # Eukaryota

@@ -1455,10 +1455,8 @@ class TaxonName < ApplicationRecord
     end
 
     if self.author_string.present? && mobj.id != cc.id
-      ay = ::Utilities::Nomenclature::VerbatimAuthor.build(
-        original_author: ay.to_s,
-        combination_author: cc.try(:author_string).to_s,
-        recombination: true, nomenclatural_code: taxon.nomenclatural_code
+      ay = Utilities::Nomenclature::VerbatimAuthor.recombination(
+        taxon.nomenclatural_code, ay.to_s, cc.try(:author_string).to_s
       )
     end
 
@@ -1499,11 +1497,7 @@ class TaxonName < ApplicationRecord
 
     if SPECIES_RANK_NAMES_ICZN.include?(taxon.rank_string)
       if p
-        if !ay.empty?
-          ay = ::Utilities::Nomenclature::VerbatimAuthor.build(
-            original_author: ay, recombination: true, nomenclatural_code: :iczn
-          )
-        end
+        ay = Utilities::Nomenclature::VerbatimAuthor.recombination(:iczn, ay)
       else
         og = taxon.original_genus
         if self.type == 'Combination'
@@ -1513,11 +1507,9 @@ class TaxonName < ApplicationRecord
           cg = (par == false && !misspelling.empty?) ? og : ancestor_at_rank('genus')
         end
         if !og.nil? && !cg.nil?
-          if !ay.empty? && og.normalized_genus.id != cg.normalized_genus.id
-            ay = ::Utilities::Nomenclature::VerbatimAuthor.build(
-              original_author: ay, recombination: true,
-              nomenclatural_code: :iczn
-            )
+          if og.normalized_genus.id != cg.normalized_genus.id
+            ay = Utilities::Nomenclature::VerbatimAuthor
+              .recombination(:iczn, ay)
           end
         end
       end

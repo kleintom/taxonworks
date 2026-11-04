@@ -983,7 +983,7 @@ class TaxonName < ApplicationRecord
       if cached_author_year =~ /^\((.*)\)$/
         return $1
       end
-    when :icn
+    when *::Utilities::Nomenclature::VerbatimAuthor::CITES_COMBINATION_AUTHOR
       # TODO: example text in spec
       if matchdata1 = cached_author_year.match(/(\(.*\))/)
         return matchdata1[1].gsub(/^\(|\)/, '')
@@ -1455,7 +1455,11 @@ class TaxonName < ApplicationRecord
     end
 
     if self.author_string.present? && mobj.id != cc.id
-      ay = '(' + ay.to_s + ') ' + cc.try(:author_string).to_s
+      ay = ::Utilities::Nomenclature::VerbatimAuthor.build(
+        original_author: ay.to_s,
+        combination_author: cc.try(:author_string).to_s,
+        recombination: true, nomenclatural_code: taxon.nomenclatural_code
+      )
     end
 
     if !misapplication.empty? && m_obj.author_string.present?
@@ -1495,7 +1499,11 @@ class TaxonName < ApplicationRecord
 
     if SPECIES_RANK_NAMES_ICZN.include?(taxon.rank_string)
       if p
-        ay = '(' + ay + ')' unless ay.empty?
+        if !ay.empty?
+          ay = ::Utilities::Nomenclature::VerbatimAuthor.build(
+            original_author: ay, recombination: true, nomenclatural_code: :iczn
+          )
+        end
       else
         og = taxon.original_genus
         if self.type == 'Combination'
@@ -1505,7 +1513,12 @@ class TaxonName < ApplicationRecord
           cg = (par == false && !misspelling.empty?) ? og : ancestor_at_rank('genus')
         end
         if !og.nil? && !cg.nil?
-          ay = '(' + ay + ')' if !ay.empty? && og.normalized_genus.id != cg.normalized_genus.id
+          if !ay.empty? && og.normalized_genus.id != cg.normalized_genus.id
+            ay = ::Utilities::Nomenclature::VerbatimAuthor.build(
+              original_author: ay, recombination: true,
+              nomenclatural_code: :iczn
+            )
+          end
         end
       end
     elsif FAMILY_RANK_NAMES_ICZN.include?(taxon.rank_string) && !y.empty? && cached_nomenclature_date&.year != y.first && !mobj.present?

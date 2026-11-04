@@ -197,11 +197,10 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
       end
     end
 
-    # See the ICNP TODO on Protonym.verbatim_author_and_year.
     context 'ICNP (bacterial) recombination — Escherichia coli example' do
       let(:rows) do
         [
-          row(col_name: 'Pseudomonadati', col_rank: 'kingdom'),
+          row(col_name: 'Bacteria', col_rank: 'kingdom'),
           row(col_name: 'Escherichia', col_rank: 'genus',
               col_authorship: 'Castellani & Chalmers, 1919 (Approved Lists 1980)'),
           row(col_name: 'coli', col_rank: 'species',
@@ -216,7 +215,7 @@ RSpec.describe Autoselect::TaxonName::CatalogueOfLifeCreator, type: :model do
           .call
       }
 
-      xit 'stores the whole parenthesized citation on verbatim_author' do
+      it 'stores the whole parenthesized citation on verbatim_author' do
         result
         species = ::TaxonName.find_by(name: 'coli', project_id:)
         expect(species.verbatim_author).to eq('(Migula) Castellani & Chalmers')

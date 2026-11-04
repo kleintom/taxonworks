@@ -117,6 +117,19 @@ describe TaxonName, type: :model, group: [:nomenclature] do
         t = FactoryBot.create(:icn_kingdom, verbatim_author: '(Seub.) Lowden')
         expect(t.original_author_year).to eq('Seub.')
       end
+
+      # Escherichia coli
+      specify 'ICNP and ICVCN author' do
+        %w{
+          NomenclaturalRank::Icnp::GenusGroup::Genus
+          NomenclaturalRank::Icvcn::Genus
+        }.each do |rank_class|
+          t = Protonym.new(
+            rank_class:, cached_author_year: '(Migula) Castellani & Chalmers'
+          )
+          expect(t.original_author_year).to eq('Migula')
+        end
+      end
     end
 
     specify '#descendants_of' do

@@ -58,6 +58,32 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
       expect(protonym.errors.messages[:verbatim_author]).to_not be_empty
     end
 
+    # Escherichia coli
+    specify '#verbatim_author parens followed by a combination author, ' \
+      'for codes that cite one' do
+      %w{
+        NomenclaturalRank::Icn::GenusGroup::Genus
+        NomenclaturalRank::Icnp::GenusGroup::Genus
+        NomenclaturalRank::Icvcn::Genus
+      }.each do |rank_class|
+        p = Protonym.new(
+          rank_class:, verbatim_author: '(Migula) Castellani & Chalmers'
+        )
+        p.valid?
+        expect(p.errors.messages[:verbatim_author]).to be_empty
+      end
+    end
+
+    specify '#verbatim_author parens followed by a combination author, ' \
+      'iczn' do
+      p = Protonym.new(
+        rank_class: 'NomenclaturalRank::Iczn::GenusGroup::Genus',
+        verbatim_author: '(Migula) Castellani & Chalmers'
+      )
+      p.valid?
+      expect(p.errors.messages[:verbatim_author]).to_not be_empty
+    end
+
     context '#rank_class' do
       specify 'is valid when a NomenclaturalRank subclass' do
         protonym.rank_class = Ranks.lookup(:iczn, 'order')

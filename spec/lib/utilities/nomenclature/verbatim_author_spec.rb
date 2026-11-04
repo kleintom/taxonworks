@@ -75,6 +75,46 @@ describe Utilities::Nomenclature::VerbatimAuthor do
     end
   end
 
+  # The ICVCN has no rules on citing authors; cited as the ICN is.
+  specify 'an :icvcn recombination is cited as an :icn one' do
+    expect(
+      v.build(
+        original_author: 'Smith', combination_author: 'Jones',
+        recombination: true, nomenclatural_code: :icvcn
+      )
+    ).to eq('(Smith) Jones')
+  end
+
+  specify 'an :iczn original author with its year keeps the year inside' do
+    expect(
+      v.build(
+        original_author: 'Linnaeus, 1758', recombination: true,
+        nomenclatural_code: :iczn
+      )
+    ).to eq('(Linnaeus, 1758)')
+  end
+
+  context '.well_formed?' do
+    specify ':iczn and no code allow wholly parenthesized or no parens' do
+      [:iczn, nil].each do |code|
+        %w{(Chatton) Chatton}.each do |a|
+          expect(v.well_formed?(a, nomenclatural_code: code)).to be true
+        end
+        ['(Chatton', 'Chatton)', '(Chatton) Whittaker'].each do |a|
+          expect(v.well_formed?(a, nomenclatural_code: code)).to be false
+        end
+      end
+    end
+
+    specify 'codes that cite the combination author allow anything' do
+      %i{icn icnp icvcn}.each do |code|
+        ['(Migula) Castellani & Chalmers', '(Migula'].each do |a|
+          expect(v.well_formed?(a, nomenclatural_code: code)).to be true
+        end
+      end
+    end
+  end
+
   specify 'an unknown code gets the unwrapped original author' do
     expect(
       v.build(

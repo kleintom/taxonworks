@@ -268,27 +268,14 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
       ).to eq(['(Moench) Voss', nil])
     end
 
-    # See the ICNP TODO on .verbatim_author_and_year.
-    context 'an ICNP recombination' do
-      # Escherichia coli
-      specify 'is currently the original author alone, without parens' do
-        expect(
-          Protonym.verbatim_author_and_year(
-            '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
-            current_combination_year: '1919', nomenclatural_code: :icnp
-          )
-        ).to eq(['Migula', 1895])
-      end
-
-      # Escherichia coli
-      xspecify 'is the whole citation' do
-        expect(
-          Protonym.verbatim_author_and_year(
-            '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
-            current_combination_year: '1919', nomenclatural_code: :icnp
-          )
-        ).to eq(['(Migula) Castellani & Chalmers', 1895])
-      end
+    # Escherichia coli
+    specify 'an ICNP recombination is the whole citation' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)',
+          current_combination_year: '1919', nomenclatural_code: :icnp
+        )
+      ).to eq(['(Migula) Castellani & Chalmers', 1895])
     end
 
     specify 'returns authorship gnparser finds no authors in as-is' do

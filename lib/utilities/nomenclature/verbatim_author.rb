@@ -1,11 +1,23 @@
 # Writes the author part of a name's author citation from its parts, as each
 # nomenclatural code says to cite a name that is no longer in its original
 # combination (or, for the ICN and ICNP, rank).
+#
+# Shared by the two places that cite a recombination: storing a citation
+# that arrives already written (Protonym.verbatim_author_and_year), and
+# deriving one from a name's relationships for display
+# (TaxonName#iczn_author_and_year, TaxonName#icn_author_and_year).
 module Utilities::Nomenclature::VerbatimAuthor
 
+  # Codes whose recombinations are cited as the original author in
+  # parentheses followed by the author of the change, e.g. "(Drude) Thorne
+  # ex Royen". The ICVCN (March 2025, ictv.global/about/code) has no rules
+  # on citing authors; it's cited as the ICN is, as TaxonWorks always has.
+  CITES_COMBINATION_AUTHOR = %i{icn icnp icvcn}.freeze
+
   # @param original_author [String, nil] the author(s) of the original
-  #   name, e.g. "Chatton"; for a name in its original combination, the
-  #   whole author citation, e.g. "Dejean ex Boisduval"
+  #   name, e.g. "Chatton", optionally with its year, e.g. "Chatton, 1925";
+  #   for a name in its original combination, the whole author citation,
+  #   e.g. "Dejean ex Boisduval"
   # @param combination_author [String, nil] the author(s) of the current
   #   combination or rank, e.g. "Whittaker & Margulis"
   # @param recombination [Boolean] whether the name is no longer in its
@@ -21,19 +33,32 @@ module Utilities::Nomenclature::VerbatimAuthor
     case nomenclatural_code
     when :iczn
       iczn(original_author)
-    when :icn, :icnp
-      icn_icnp(original_author, combination_author)
+    when *CITES_COMBINATION_AUTHOR
+      basionym_and_combination_author(original_author, combination_author)
     else
-      # The ICVCN (March 2025, ictv.global/about/code) has no rules on
-      # citing authors; with no code there's no rule to apply.
+      # With no code there's no rule to apply.
       original_author
     end
   end
 
+  # Whether verbatim_author has a form build could have written for the
+  # code: for the ICZN (and no code) either wholly in parentheses or with
+  # none at all, "(Chatton)" or "Chatton"; for codes that cite the
+  # combination author after the parentheses, anything.
+  # @param verbatim_author [String]
+  # @param nomenclatural_code [Symbol, nil]
+  # @return [Boolean]
+  def self.well_formed?(verbatim_author, nomenclatural_code:)
+    return true if CITES_COMBINATION_AUTHOR.include?(nomenclatural_code)
+
+    verbatim_author.match?(/\A\([^()]+\)\z|\A[^()]+\z/)
+  end
+
   # A species-group name combined with a genus other than its original one
-  # has its author in parentheses (ICZN Art. 51.3), e.g. "(Chatton)". The
-  # author of the new combination isn't part of the citation; if cited at
-  # all it follows the parentheses (Rec. 51G), and isn't here.
+  # has its author (and year, if given) in parentheses (ICZN Art. 51.3),
+  # e.g. "(Chatton)". The author of the new combination isn't part of the
+  # citation; if cited at all it follows the parentheses (Rec. 51G), and
+  # isn't here.
   def self.iczn(original_author)
     "(#{original_author})"
   end
@@ -43,9 +68,9 @@ module Utilities::Nomenclature::VerbatimAuthor
   # cited with the original name's author in parentheses followed by the
   # author who made the change (ICN Art. 49.1; ICNP Rules 34b, 34c), e.g.
   # "(Drude) Thorne ex Royen".
-  def self.icn_icnp(original_author, combination_author)
+  def self.basionym_and_combination_author(original_author, combination_author)
     ["(#{original_author})", combination_author].compact.join(' ')
   end
-  private_class_method :icn_icnp
+  private_class_method :basionym_and_combination_author
 
 end

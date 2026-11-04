@@ -230,24 +230,10 @@ class Protonym < TaxonName
       year = parts[:year] || current_combination_year
     end
 
-    verbatim_author =
-      if nomenclatural_code == :icnp && recombination
-        # TODO: investigate/fix ICNP recombinations. Their citation (Rules
-        # 34b, 34c), e.g. Escherichia coli "(Migula) Castellani & Chalmers",
-        # isn't storable: Protonym's closed-parens validation only exempts
-        # ICN. Until it is, they get the original author alone, without
-        # parens, so they read as original combinations (is_original_name?
-        # and the is_original_name scope test for a leading paren; see the
-        # xspecs). A fix needs that validation to exempt ICNP too, and
-        # TaxonName#original_author_year to strip the parens for :icnp as
-        # it does for :icn.
-        original_author
-      else
-        ::Utilities::Nomenclature::VerbatimAuthor.build(
-          original_author:, combination_author:, recombination:,
-          nomenclatural_code:
-        )
-      end
+    verbatim_author = ::Utilities::Nomenclature::VerbatimAuthor.build(
+      original_author:, combination_author:, recombination:,
+      nomenclatural_code:
+    )
 
     [verbatim_author, year]
   end
@@ -965,9 +951,11 @@ class Protonym < TaxonName
   end
 
   def verbatim_author_with_closed_parens_when_present
-    if verbatim_author.present? and nomenclatural_code != :icn  # workaround until basyonim field exists
-      # Regex matches two possible, both params, or no params at start/end
-      errors.add(:verbatim_author, 'Verbatim author is missing a parenthesis') unless verbatim_author =~ /\A\([^()]+\)\z|\A[^()]+\z/
+    if verbatim_author.present? &&
+        !::Utilities::Nomenclature::VerbatimAuthor.well_formed?(
+          verbatim_author, nomenclatural_code:
+        )
+      errors.add(:verbatim_author, 'Verbatim author is missing a parenthesis')
     end
   end
 

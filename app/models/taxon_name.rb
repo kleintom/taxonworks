@@ -1469,11 +1469,15 @@ class TaxonName < ApplicationRecord
       a = [taxon.try(:author_string)]
       y = [taxon.try(:year_integer)]
     end
-    if a[0] =~ /^\(.+\)$/ # (Author)
-      a[0] = a[0][1..-2] ## remove parentheses in the author string # TODO: draw from cached_author
-      p = true
-    else
-      p = false
+    # A stored recombination, "(Author)": unwrap it, so the year can go
+    # inside the parentheses when they're put back.
+    # TODO: draw from cached_author
+    p = false
+    if a[0]
+      original = Utilities::Nomenclature::AuthorCitation
+        .original_author_year(:iczn, a[0])
+      p = original != a[0]
+      a[0] = original
     end
 
     ay = (a + y).compact.join(', ')

@@ -47,7 +47,8 @@ module Utilities::AuthorNames
   #   * surnames - folded (.fold), in order
   #   * year - the name's own: a "non Author, year" (homonym) suffix is
   #     dropped first
-  #   * parenthesized - sensu ICZN;
+  #   * parenthesized - whether it's cited as a recombination
+  #     (Utilities::Nomenclature::AuthorCitation.recombination_form?);
   # nil when either surnames or year can't be found (e.g. "Lam.") - an
   # incomplete key compares with nothing.
   #
@@ -63,7 +64,9 @@ module Utilities::AuthorNames
       .reject(&:empty?)
     return nil if year.nil? || surnames.empty?
 
-    { surnames:, year:, parenthesized: s.start_with?('(') }
+    parenthesized =
+      ::Utilities::Nomenclature::AuthorCitation.recombination_form?(s)
+    { surnames:, year:, parenthesized: }
   end
 
   # @param a [Hash, nil] an .authorship_key

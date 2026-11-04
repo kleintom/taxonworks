@@ -150,6 +150,7 @@ class Protonym < TaxonName
   scope :is_family_group, -> { where("taxon_names.rank_class ILIKE '%family%'") }
   scope :is_species_or_genus_group, -> { where("taxon_names.rank_class ILIKE '%speciesgroup%' OR taxon_names.rank_class ILIKE '%genusgroup%'")   }
 
+  # Utilities::Nomenclature::AuthorCitation.recombination_form?, in SQL.
   scope :is_original_name, -> { where("taxon_names.cached_author_year NOT ILIKE '(%'") }
   scope :is_not_original_name, -> { where("taxon_names.cached_author_year ILIKE '(%'") }
 
@@ -597,8 +598,8 @@ class Protonym < TaxonName
 
   # @return [Boolean]
   def is_original_name?
-    cached_author_year[0] == '(' ? false : true
-    # cached_author_year =~ /\(/ ? false : true
+    !::Utilities::Nomenclature::AuthorCitation
+      .recombination_form?(cached_author_year)
   end
 
   # @return [Boolean]

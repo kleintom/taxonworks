@@ -224,7 +224,7 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
   end
 
   # Parsing and formatting are covered by Vendor::Biodiversity's and
-  # Utilities::Nomenclature::VerbatimAuthor's specs; these cover how they're
+  # Utilities::Nomenclature::AuthorCitation's specs; these cover how they're
   # combined, current_combination_year and the unparsed fallback. Authorship
   # strings are Catalogue of Life's (dataset 3LR, 2026-11) for the name noted.
   context '.verbatim_author_and_year' do

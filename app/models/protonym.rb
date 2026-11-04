@@ -230,7 +230,7 @@ class Protonym < TaxonName
       year = parts[:year] || current_combination_year
     end
 
-    verbatim_author = ::Utilities::Nomenclature::VerbatimAuthor.build(
+    verbatim_author = ::Utilities::Nomenclature::AuthorCitation.build(
       original_author:, combination_author:, recombination:,
       nomenclatural_code:
     )
@@ -952,7 +952,7 @@ class Protonym < TaxonName
 
   def verbatim_author_with_closed_parens_when_present
     if verbatim_author.present? &&
-        !::Utilities::Nomenclature::VerbatimAuthor.well_formed?(
+        !::Utilities::Nomenclature::AuthorCitation.well_formed?(
           verbatim_author, nomenclatural_code:
         )
       errors.add(:verbatim_author, 'Verbatim author is missing a parenthesis')

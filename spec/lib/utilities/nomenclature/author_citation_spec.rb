@@ -1,7 +1,7 @@
 require 'rails_helper'
 
-describe Utilities::Nomenclature::VerbatimAuthor do
-  let(:v) { Utilities::Nomenclature::VerbatimAuthor }
+describe Utilities::Nomenclature::AuthorCitation do
+  let(:v) { Utilities::Nomenclature::AuthorCitation }
 
   # Parts of the Catalogue of Life citations (dataset 3LR, 2026-11) for the
   # name noted.

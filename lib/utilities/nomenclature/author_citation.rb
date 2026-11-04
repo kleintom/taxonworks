@@ -6,7 +6,7 @@
 # that arrives already written (Protonym.verbatim_author_and_year), and
 # deriving one from a name's relationships for display
 # (TaxonName#iczn_author_and_year, TaxonName#icn_author_and_year).
-module Utilities::Nomenclature::VerbatimAuthor
+module Utilities::Nomenclature::AuthorCitation
 
   # Codes whose recombinations are cited as the original author in
   # parentheses followed by the author of the change, e.g. "(Drude) Thorne

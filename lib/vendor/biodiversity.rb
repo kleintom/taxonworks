@@ -53,7 +53,7 @@ module Vendor
     # Royen". Any other citation, e.g. "Linnaeus, 1758", has only author and
     # year.
     #
-    # See Utilities::Nomenclature::VerbatimAuthor for turning these into a
+    # See Utilities::Nomenclature::AuthorCitation for turning these into a
     # Protonym's verbatim_author.
     #
     # TODO: get gnparser (gnames/gnparser) to parse these authorships, which

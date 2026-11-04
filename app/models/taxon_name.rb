@@ -983,7 +983,7 @@ class TaxonName < ApplicationRecord
       if cached_author_year =~ /^\((.*)\)$/
         return $1
       end
-    when *::Utilities::Nomenclature::VerbatimAuthor::CITES_COMBINATION_AUTHOR
+    when *::Utilities::Nomenclature::AuthorCitation::CITES_COMBINATION_AUTHOR
       # TODO: example text in spec
       if matchdata1 = cached_author_year.match(/(\(.*\))/)
         return matchdata1[1].gsub(/^\(|\)/, '')
@@ -1455,7 +1455,7 @@ class TaxonName < ApplicationRecord
     end
 
     if self.author_string.present? && mobj.id != cc.id
-      ay = Utilities::Nomenclature::VerbatimAuthor.recombination(
+      ay = Utilities::Nomenclature::AuthorCitation.recombination(
         taxon.nomenclatural_code, ay.to_s, cc.try(:author_string).to_s
       )
     end
@@ -1497,7 +1497,7 @@ class TaxonName < ApplicationRecord
 
     if SPECIES_RANK_NAMES_ICZN.include?(taxon.rank_string)
       if p
-        ay = Utilities::Nomenclature::VerbatimAuthor.recombination(:iczn, ay)
+        ay = Utilities::Nomenclature::AuthorCitation.recombination(:iczn, ay)
       else
         og = taxon.original_genus
         if self.type == 'Combination'
@@ -1508,7 +1508,7 @@ class TaxonName < ApplicationRecord
         end
         if !og.nil? && !cg.nil?
           if og.normalized_genus.id != cg.normalized_genus.id
-            ay = Utilities::Nomenclature::VerbatimAuthor
+            ay = Utilities::Nomenclature::AuthorCitation
               .recombination(:iczn, ay)
           end
         end

@@ -5,105 +5,125 @@ describe Utilities::Nomenclature::AuthorCitation do
 
   # Parts of the Catalogue of Life citations (dataset 3LR, 2026-11) for the
   # name noted.
-  context 'a name in its original combination' do
-    specify 'is the original author, whatever the code' do
-      %i{iczn icn icnp icvcn}.each do |code|
+  context '.author_and_year' do
+    def parts(parenthetical_author: nil, parenthetical_year: nil,
+      author: nil, year: nil)
+      { parenthetical_author:, parenthetical_year:, author:, year: }
+    end
+
+    context 'a name in its original combination' do
+      specify 'is the author as written, whatever the code' do
+        %i{iczn icn icnp icvcn}.each do |code|
+          expect(
+            v.author_and_year(
+              code, **parts(author: 'Dejean ex Boisduval', year: 1829)
+            )
+          ).to eq(['Dejean ex Boisduval', 1829])
+        end
+      end
+
+      specify 'takes current_combination_year when the citation has none' do
         expect(
-          v.build(
-            original_author: 'Dejean ex Boisduval', nomenclatural_code: code
+          v.author_and_year(
+            :iczn, **parts(author: 'Linnaeus'), current_combination_year: 1758
           )
-        ).to eq('Dejean ex Boisduval')
+        ).to eq(['Linnaeus', 1758])
+      end
+
+      specify 'prefers the citation\'s own year' do
+        expect(
+          v.author_and_year(
+            :iczn, **parts(author: 'Linnaeus', year: 1758),
+            current_combination_year: 1900
+          )
+        ).to eq(['Linnaeus', 1758])
       end
     end
-  end
 
-  specify 'no original author is nil' do
-    expect(
-      v.build(
-        original_author: nil, recombination: true, nomenclatural_code: :iczn
-      )
-    ).to be_nil
+    # Eukaryota
+    context 'a recombination' do
+      let(:chatton) {
+        parts(
+          parenthetical_author: 'Chatton', parenthetical_year: 1925,
+          author: 'Whittaker & Margulis', year: 1978
+        )
+      }
+
+      specify 'is cited by the code, with the original name\'s year' do
+        expect(v.author_and_year(:iczn, **chatton))
+          .to eq(['(Chatton)', 1925])
+        expect(v.author_and_year(:icn, **chatton))
+          .to eq(['(Chatton) Whittaker & Margulis', 1925])
+      end
+
+      specify 'never takes current_combination_year' do
+        expect(
+          v.author_and_year(
+            :icn,
+            **parts(parenthetical_author: 'Moench', author: 'Voss'),
+            current_combination_year: 1890
+          )
+        ).to eq(['(Moench) Voss', nil])
+      end
+    end
+
+    specify 'no author is nil' do
+      expect(v.author_and_year(:iczn, **parts)).to eq([nil, nil])
+    end
   end
 
   context '.recombination' do
-    specify 'is build for a recombination' do
-      expect(v.recombination(:icn, 'Moench', 'Voss')).to eq('(Moench) Voss')
-      expect(v.recombination(:iczn, 'Chatton')).to eq('(Chatton)')
-    end
-
     specify 'an empty original author is returned as-is' do
       expect(v.recombination(:iczn, '')).to eq('')
       expect(v.recombination(:icn, '', 'Voss')).to eq('')
     end
-  end
 
-  # ICZN Art. 51.3, Rec. 51G
-  context ':iczn recombination' do
-    # Eukaryota
-    specify 'wraps the original author and drops the combination author' do
-      expect(
-        v.build(
-          original_author: 'Chatton',
-          combination_author: 'Whittaker & Margulis',
-          recombination: true, nomenclatural_code: :iczn
-        )
-      ).to eq('(Chatton)')
-    end
-  end
-
-  # ICN Art. 49.1
-  context ':icn recombination' do
-    # Apioideae
-    specify 'is the whole citation' do
-      expect(
-        v.build(
-          original_author: 'Drude', combination_author: 'Thorne ex Royen',
-          recombination: true, nomenclatural_code: :icn
-        )
-      ).to eq('(Drude) Thorne ex Royen')
+    specify 'no original author is nil' do
+      expect(v.recombination(:iczn, nil)).to be_nil
     end
 
-    specify 'with no combination author is just the wrapped original' do
-      expect(
-        v.build(
-          original_author: 'Moench', recombination: true,
-          nomenclatural_code: :icn
-        )
-      ).to eq('(Moench)')
-    end
-  end
+    # ICZN Art. 51.3, Rec. 51G
+    context ':iczn' do
+      # Eukaryota
+      specify 'wraps the original author and drops the combination author' do
+        expect(v.recombination(:iczn, 'Chatton', 'Whittaker & Margulis'))
+          .to eq('(Chatton)')
+      end
 
-  # ICNP Rules 34b, 34c
-  context ':icnp recombination' do
+      specify 'keeps an original author\'s year inside' do
+        expect(v.recombination(:iczn, 'Linnaeus, 1758'))
+          .to eq('(Linnaeus, 1758)')
+      end
+    end
+
+    # ICN Art. 49.1
+    context ':icn' do
+      # Apioideae
+      specify 'is the whole citation' do
+        expect(v.recombination(:icn, 'Drude', 'Thorne ex Royen'))
+          .to eq('(Drude) Thorne ex Royen')
+      end
+
+      specify 'with no combination author is just the wrapped original' do
+        expect(v.recombination(:icn, 'Moench')).to eq('(Moench)')
+      end
+    end
+
+    # ICNP Rules 34b, 34c
     # Escherichia coli
-    specify 'is the whole citation' do
-      expect(
-        v.build(
-          original_author: 'Migula',
-          combination_author: 'Castellani & Chalmers',
-          recombination: true, nomenclatural_code: :icnp
-        )
-      ).to eq('(Migula) Castellani & Chalmers')
+    specify ':icnp is the whole citation' do
+      expect(v.recombination(:icnp, 'Migula', 'Castellani & Chalmers'))
+        .to eq('(Migula) Castellani & Chalmers')
     end
-  end
 
-  # The ICVCN has no rules on citing authors; cited as the ICN is.
-  specify 'an :icvcn recombination is cited as an :icn one' do
-    expect(
-      v.build(
-        original_author: 'Smith', combination_author: 'Jones',
-        recombination: true, nomenclatural_code: :icvcn
-      )
-    ).to eq('(Smith) Jones')
-  end
+    # The ICVCN has no rules on citing authors; cited as the ICN is.
+    specify ':icvcn is cited as :icn' do
+      expect(v.recombination(:icvcn, 'Smith', 'Jones')).to eq('(Smith) Jones')
+    end
 
-  specify 'an :iczn original author with its year keeps the year inside' do
-    expect(
-      v.build(
-        original_author: 'Linnaeus, 1758', recombination: true,
-        nomenclatural_code: :iczn
-      )
-    ).to eq('(Linnaeus, 1758)')
+    specify 'an unknown code gets the unwrapped original author' do
+      expect(v.recombination(nil, 'Linnaeus')).to eq('Linnaeus')
+    end
   end
 
   context '.recombination_form?' do
@@ -117,35 +137,6 @@ describe Utilities::Nomenclature::AuthorCitation do
     specify 'any other citation' do
       ['Linnaeus, 1758', 'auct. non (L.) Benth.', 'Retz. (fruit)']
         .each { |c| expect(v.recombination_form?(c)).to be false }
-    end
-  end
-
-  context '.interpret' do
-    # Eukaryota
-    specify 'a parenthetical author is the original author of a ' \
-      'recombination' do
-      expect(
-        v.interpret(
-          parenthetical_author: 'Chatton', parenthetical_year: 1925,
-          author: 'Whittaker & Margulis', year: 1978
-        )
-      ).to eq(
-        original_author: 'Chatton', original_year: 1925,
-        combination_author: 'Whittaker & Margulis', recombination: true
-      )
-    end
-
-    specify 'with no parenthetical author, the author is the original ' \
-      'author' do
-      expect(
-        v.interpret(
-          parenthetical_author: nil, parenthetical_year: nil,
-          author: 'Linnaeus', year: 1758
-        )
-      ).to eq(
-        original_author: 'Linnaeus', original_year: 1758,
-        combination_author: nil, recombination: false
-      )
     end
   end
 
@@ -197,14 +188,5 @@ describe Utilities::Nomenclature::AuthorCitation do
         end
       end
     end
-  end
-
-  specify 'an unknown code gets the unwrapped original author' do
-    expect(
-      v.build(
-        original_author: 'Linnaeus', recombination: true,
-        nomenclatural_code: nil
-      )
-    ).to eq('Linnaeus')
   end
 end

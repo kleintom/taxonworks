@@ -1,11 +1,9 @@
-# Writes the author part of a name's author citation from its parts, as each
-# nomenclatural code says to cite a name that is no longer in its original
-# combination (or, for the ICN and ICNP, rank).
-#
-# Shared by the two places that cite a recombination: storing a citation
-# that arrives already written (Protonym.verbatim_author_and_year), and
-# deriving one from a name's relationships for display
-# (TaxonName#iczn_author_and_year, TaxonName#icn_author_and_year).
+# Author citations (the author and year after a name) as each
+# nomenclatural code writes them, in particular for a name that is no
+# longer in its original combination (or, for the ICN and ICNP, rank):
+# reading one written elsewhere (author_and_year, recombination_form?),
+# writing one (recombination), reading one back (original_author), and
+# checking a stored author (well_formed?).
 module Utilities::Nomenclature::AuthorCitation
 
   # Codes whose recombinations are cited as the original author in
@@ -30,56 +28,44 @@ module Utilities::Nomenclature::AuthorCitation
     citation.start_with?('(')
   end
 
-  # What a citation's parts say about the name, by the rule in
-  # recombination_form?: a parenthetical author is the original name's
-  # author, and what follows it the author of the current combination.
+  # The author and year of a citation written elsewhere, given as its parts
+  # (e.g. by Vendor::Biodiversity.authorship_parts), as the code cites the
+  # name. By the rule in recombination_form?, a parenthetical author is the
+  # original name's author, and what follows it the current combination's;
+  # the year is always the original name's.
+  # @param nomenclatural_code [Symbol, nil] :iczn, :icn, :icnp, :icvcn
   # @param parenthetical_author [String, nil] the citation's leading
-  #   parenthetical, e.g. "Chatton"
-  # @param parenthetical_year [Integer, nil] its year, e.g. 1925
+  #   parenthetical
+  # @param parenthetical_year [Integer, nil] its year
   # @param author [String, nil] the rest of the citation, or the whole
-  #   citation when it has no parenthetical, e.g. "Whittaker & Margulis"
-  # @param year [Integer, nil] its year, e.g. 1978
-  # @return [Hash] { original_author:, original_year:, combination_author:,
-  #   recombination: }
-  def self.interpret(parenthetical_author:, parenthetical_year:, author:, year:)
+  #   citation when it has no parenthetical
+  # @param year [Integer, nil] its year
+  # @param current_combination_year [Integer, nil] the year of the name as
+  #   currently combined, given apart from the citation. Only used when the
+  #   name is in its original combination and the citation has no year.
+  #   Never used for a recombination: that's not the original name's year.
+  # @return [Array(String, Integer), Array(nil, nil)]
+  def self.author_and_year(
+    nomenclatural_code, parenthetical_author:, parenthetical_year:, author:,
+    year:, current_combination_year: nil
+  )
     if parenthetical_author.nil? || parenthetical_author.empty?
-      {
-        original_author: author, original_year: year,
-        combination_author: nil, recombination: false
-      }
-    else
-      {
-        original_author: parenthetical_author,
-        original_year: parenthetical_year,
-        combination_author: author, recombination: true
-      }
+      return [author, year || current_combination_year]
     end
+
+    [
+      recombination(nomenclatural_code, parenthetical_author, author),
+      parenthetical_year
+    ]
   end
 
+  # The author part of the citation of a name no longer in its original
+  # combination (or, for the ICN and ICNP, rank).
+  # @param nomenclatural_code [Symbol, nil] :iczn, :icn, :icnp, :icvcn
   # @param original_author [String, nil] the author(s) of the original
-  #   name, e.g. "Chatton", optionally with its year, e.g. "Chatton, 1925";
-  #   for a name in its original combination, the whole author citation,
-  #   e.g. "Dejean ex Boisduval"
+  #   name, e.g. "Chatton", optionally with its year, e.g. "Chatton, 1925"
   # @param combination_author [String, nil] the author(s) of the current
   #   combination or rank, e.g. "Whittaker & Margulis"
-  # @param recombination [Boolean] whether the name is no longer in its
-  #   original combination (or rank)
-  # @param nomenclatural_code [Symbol, nil] :iczn, :icn, :icnp, :icvcn
-  # @return [String, nil]
-  def self.build(
-    original_author:, combination_author: nil, recombination: false,
-    nomenclatural_code: nil
-  )
-    return original_author if !recombination
-
-    self.recombination(nomenclatural_code, original_author, combination_author)
-  end
-
-  # build for a name known to be a recombination, e.g. one whose original
-  # combination is known from its relationships.
-  # @param nomenclatural_code [Symbol, nil] :iczn, :icn, :icnp, :icvcn
-  # @param original_author [String, nil] as for build
-  # @param combination_author [String, nil] as for build
   # @return [String, nil] original_author as-is when it's nil or empty
   def self.recombination(
     nomenclatural_code, original_author, combination_author = nil
@@ -122,10 +108,10 @@ module Utilities::Nomenclature::AuthorCitation
     end
   end
 
-  # Whether verbatim_author has a form build could have written for the
-  # code: for the ICZN (and no code) either wholly in parentheses or with
-  # none at all, "(Chatton)" or "Chatton"; for codes that cite the
-  # combination author after the parentheses, anything.
+  # Whether verbatim_author has a form recombination could have written
+  # for the code: for the ICZN (and no code) either wholly in parentheses
+  # or with none at all, "(Chatton)" or "Chatton"; for codes that cite
+  # the combination author after the parentheses, anything.
   # @param verbatim_author [String]
   # @param nomenclatural_code [Symbol, nil]
   # @return [Boolean]

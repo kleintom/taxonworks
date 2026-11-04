@@ -189,10 +189,8 @@ class Protonym < TaxonName
   #
   # @param authorship [String, nil]
   # @param current_combination_year [String, Integer, nil] the year of the
-  #   name as currently combined, given apart from the citation. Only used
-  #   when the name is in its original combination and the citation has no
-  #   year. Never used for a recombination: a Protonym takes the original
-  #   name's year, which this isn't.
+  #   name as currently combined, given apart from the citation; see
+  #   Utilities::Nomenclature::AuthorCitation.author_and_year
   # @param nomenclatural_code [Symbol, nil] the code of the rank the
   #   Protonym is created at: :iczn, :icn, :icnp, :icvcn
   # @return [Array(String, Integer), Array(nil, nil)]
@@ -205,22 +203,14 @@ class Protonym < TaxonName
     parts = ::Vendor::Biodiversity.authorship_parts(authorship)
     if parts.nil?
       authorship = ::CGI.unescapeHTML(authorship).strip
-      recombination =
-        ::Utilities::Nomenclature::AuthorCitation
-          .recombination_form?(authorship)
-      # best effort:
+      recombination = ::Utilities::Nomenclature::AuthorCitation
+        .recombination_form?(authorship)
       return [authorship, recombination ? nil : current_combination_year]
     end
 
-    cited = ::Utilities::Nomenclature::AuthorCitation.interpret(**parts)
-    verbatim_author = ::Utilities::Nomenclature::AuthorCitation.build(
-      **cited.except(:original_year), nomenclatural_code:
+    ::Utilities::Nomenclature::AuthorCitation.author_and_year(
+      nomenclatural_code, **parts, current_combination_year:
     )
-
-    year = cited[:original_year]
-    year ||= current_combination_year if !cited[:recombination]
-
-    [verbatim_author, year]
   end
 
   # TODO: feels like TaxonNames Filter f(n)

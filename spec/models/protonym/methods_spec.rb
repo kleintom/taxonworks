@@ -278,6 +278,21 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
       ).to eq(['(Migula) Castellani & Chalmers', 1895])
     end
 
+    # Pseudomonas cepacia, ICNP Rule 33c Note 2. See the TODO on
+    # Utilities::Nomenclature::AuthorCitation.recombination_form?. Whether
+    # verbatim_author keeps the "(ex Burkholder)" credit is undecided, so
+    # only the revivers ending it is checked.
+    xspecify 'an ICNP revived name is an original combination by the ' \
+      'reviver' do
+      author, year = Protonym.verbatim_author_and_year(
+        '(ex Burkholder 1950) Palleroni and Holmes 1981',
+        nomenclatural_code: :icnp
+      )
+      expect(year).to eq(1981)
+      expect(author).to end_with('Palleroni and Holmes')
+      expect(author).not_to match(/\d/)
+    end
+
     specify 'returns authorship gnparser finds no authors in as-is' do
       expect(
         Protonym.verbatim_author_and_year(

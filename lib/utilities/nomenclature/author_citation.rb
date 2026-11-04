@@ -19,9 +19,22 @@ module Utilities::Nomenclature::AuthorCitation
   #
   # A practical rule, not a code's: a citation from elsewhere was built who
   # knows how, and the parenthetical is the only sign of an earlier
-  # combination it can carry. [The codes cite recombinations that way, but
-  # not everything cited that way is one (e.g. ICNP revived names, "(ex
-  # Jahn, 1924) Reichenbach 2007", Rule 33c Note 2).]
+  # combination it can carry. The codes cite recombinations that way, but
+  # not everything cited that way is one.
+  #
+  # TODO: ICNP revived names (Rule 33c Note 2) credit the original author
+  # with "ex" in a leading parenthetical, e.g. Pseudomonas cepacia "(ex
+  # Burkholder 1950) Palleroni and Holmes 1981". That's an original
+  # combination by the reviver, whose year it takes (Rule 28a): author
+  # "Palleroni and Holmes", year 1981, not a recombination of Burkholder's
+  # 1950 name. For :icnp a parenthetical starting "ex" should be read that
+  # way here and in author_and_year. gnparser can't parse these yet, so
+  # today they fall back to the raw string (with its years), which
+  # Protonym's verbatim_author validation rejects (see the xspec 'an ICNP
+  # revived name is an original combination by the reviver' on
+  # Protonym.verbatim_author_and_year). A later recombination keeps the
+  # credit inside the parentheses and is read correctly:
+  # "(Palleroni and Holmes 1981 ex Burkholder 1950) Yabuuchi et al. 1993".
   # @param citation [String]
   # @return [Boolean]
   def self.recombination_form?(citation)

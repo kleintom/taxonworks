@@ -969,14 +969,14 @@ class TaxonName < ApplicationRecord
   #   !!    i.e. it currently differs from cached_author + cached_nomenclature_date.year
   def original_author_year
     return nil unless cached_author_year
+
+    # A misspelling's citation is returned whole.
     if nomenclatural_code == :iczn && cached_misspelling
       return cached_author_year
     end
 
-    # This means that misaplied or misspelled names return cached author year
     Utilities::Nomenclature::AuthorCitation
-      .original_author(nomenclatural_code, cached_author_year) ||
-      cached_author_year
+      .original_author_year(nomenclatural_code, cached_author_year)
   end
 
   # @return [Array of TaxonName] ancestors of type 'Protonym'

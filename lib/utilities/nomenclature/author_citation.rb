@@ -2,7 +2,7 @@
 # nomenclatural code writes them, in particular for a name that is no
 # longer in its original combination (or, for the ICN and ICNP, rank):
 # reading one written elsewhere (author_and_year, recombination_form?),
-# writing one (recombination), reading one back (original_author), and
+# writing one (recombination), reading one back (original_author_year), and
 # checking a stored author (well_formed?).
 module Utilities::Nomenclature::AuthorCitation
 
@@ -96,29 +96,34 @@ module Utilities::Nomenclature::AuthorCitation
     end
   end
 
-  # The inverse of recombination: the original author (and year, if it's
-  # inside the parentheses) from a citation in the code's recombination
-  # form, or nil when the citation isn't in that form.
+  # The original name's author (and year, if cited) from a citation: for
+  # one in the code's recombination form, what's inside the parentheses
+  # (the inverse of recombination); for any other, e.g. an original
+  # combination's, the whole citation. A citation that adds to the form,
+  # e.g. a misapplication's, is also returned whole.
   # @param nomenclatural_code [Symbol, nil] :iczn, :icn, :icnp, :icvcn
   # @param citation [String] e.g. a TaxonName's cached_author_year
-  # @return [String, nil]
-  def self.original_author(nomenclatural_code, citation)
-    case nomenclatural_code
-    when :iczn
-      # The whole citation in parentheses, like this:
-      # (Baker, 1899) -> Baker, 1899
-      # Not with anything after them, like this:
-      # (Baker, 1899) non Gillette, 1898
-      citation[/\A\((.*)\)\z/, 1]
-    when *CITES_COMBINATION_AUTHOR
-      # A leading parenthetical, like this:
-      # (Seub.) Lowden -> Seub.
-      # (Migula) Castellani & Chalmers -> Migula
-      # Not a parenthetical elsewhere, like this:
-      # auct. non (L.) Benth.
-      # Retz. (fruit)
-      citation[/\A\(([^()]+)\)/, 1]
-    end
+  # @return [String]
+  def self.original_author_year(nomenclatural_code, citation)
+    original =
+      case nomenclatural_code
+      when :iczn
+        # The whole citation in parentheses, like this:
+        # (Baker, 1899) -> Baker, 1899
+        # Not with anything after them, like this:
+        # (Baker, 1899) non Gillette, 1898
+        citation[/\A\((.*)\)\z/, 1]
+      when *CITES_COMBINATION_AUTHOR
+        # A leading parenthetical, like this:
+        # (Seub.) Lowden -> Seub.
+        # (Migula) Castellani & Chalmers -> Migula
+        # Not a parenthetical elsewhere, like this:
+        # auct. non (L.) Benth.
+        # Retz. (fruit)
+        citation[/\A\(([^()]+)\)/, 1]
+      end
+
+    original || citation
   end
 
   # Whether verbatim_author has a form recombination could have written

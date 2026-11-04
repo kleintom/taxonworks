@@ -202,6 +202,7 @@ class Protonym < TaxonName
     current_combination_year = current_combination_year.presence&.to_i
     parts = ::Vendor::Biodiversity.authorship_parts(authorship)
     if parts.nil?
+      # Best effort.
       authorship = ::CGI.unescapeHTML(authorship).strip
       recombination = ::Utilities::Nomenclature::AuthorCitation
         .recombination_form?(authorship)

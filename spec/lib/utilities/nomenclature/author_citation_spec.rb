@@ -141,29 +141,35 @@ describe Utilities::Nomenclature::AuthorCitation do
   end
 
   # Citations from real names.
-  context '.original_author' do
+  context '.original_author_year' do
     {
-      iczn: {
-        '(Baker, 1899)' => 'Baker, 1899',
-        '(Baker, 1899) non Gillette, 1898' => nil,
-        'Baker, 1899' => nil
-      },
+      iczn: { '(Baker, 1899)' => 'Baker, 1899' },
       icn: {
         '(Seub.) Lowden' => 'Seub.',
         '(Douglas ex D. Don) Lindley (1833)' => 'Douglas ex D. Don',
-        '(Wall.) (1831)' => 'Wall.',
-        'auct. non (L.) Benth.' => nil,
-        'Retz. (fruit)' => nil,
-        'Moench (pro sp.) [deltoides × nigra]' => nil,
-        'Lemmon (1892)' => nil
+        '(Wall.) (1831)' => 'Wall.'
       },
       icnp: { '(Migula) Castellani & Chalmers' => 'Migula' },
-      icvcn: { '(Migula) Castellani & Chalmers' => 'Migula' },
-      nil => { '(Baker, 1899)' => nil }
+      icvcn: { '(Migula) Castellani & Chalmers' => 'Migula' }
     }.each do |code, citations|
       citations.each do |citation, expected|
-        specify "#{code.inspect} #{citation} -> #{expected.inspect}" do
-          expect(v.original_author(code, citation)).to eq(expected)
+        specify "#{code.inspect} #{citation} -> #{expected}" do
+          expect(v.original_author_year(code, citation)).to eq(expected)
+        end
+      end
+    end
+
+    {
+      iczn: ['Baker, 1899', '(Baker, 1899) non Gillette, 1898'],
+      icn: [
+        'auct. non (L.) Benth.', 'Retz. (fruit)',
+        'Moench (pro sp.) [deltoides × nigra]', 'Lemmon (1892)'
+      ],
+      nil => ['(Baker, 1899)']
+    }.each do |code, citations|
+      citations.each do |citation|
+        specify "#{code.inspect} #{citation} is returned as-is" do
+          expect(v.original_author_year(code, citation)).to eq(citation)
         end
       end
     end

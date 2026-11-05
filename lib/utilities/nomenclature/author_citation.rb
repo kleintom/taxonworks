@@ -2,8 +2,8 @@
 # nomenclatural code writes them, in particular for a name that is no
 # longer in its original combination (or, for the ICN and ICNP, rank):
 # reading one written elsewhere (author_and_year, recombination_form?),
-# writing one (recombination), reading one back (original_author_year), and
-# checking a stored author (well_formed?).
+# writing one (author_year, recombination), reading one back
+# (original_author_year), and checking a stored author (well_formed?).
 module Utilities::Nomenclature::AuthorCitation
 
   # Codes whose recombinations are cited as the original author in
@@ -70,6 +70,33 @@ module Utilities::Nomenclature::AuthorCitation
       recombination(nomenclatural_code, parenthetical_author, author),
       parenthetical_year
     ]
+  end
+
+  # The author and year as the code cites them, e.g. for the ICZN
+  # "Linnaeus, 1758", or "(Linnaeus, 1758)" for a recombination (Art.
+  # 51.3: the year goes inside the parentheses). An author stored in
+  # recombination form, "(Linnaeus)", is unwrapped first, and re-wrapped
+  # only if recombination is true: whether the name is one (e.g. only
+  # species-group names are) is the caller's to decide.
+  #
+  # Only the ICZN: TaxonWorks cites the other codes' names without a year.
+  # @param nomenclatural_code [Symbol] :iczn
+  # @param author [String, nil] e.g. a Protonym's author_string
+  # @param year [Integer, nil]
+  # @param recombination [Boolean]
+  # @return [String] empty when there's neither author nor year
+  def self.author_year(nomenclatural_code, author, year, recombination:)
+    if nomenclatural_code != :iczn
+      raise ArgumentError, "#{nomenclatural_code.inspect} isn't cited with " \
+        'a year'
+    end
+
+    if !author.nil? && recombination_form?(author)
+      author = original_author_year(nomenclatural_code, author)
+    end
+    author_year = [author, year].compact.join(', ')
+
+    recombination ? self.recombination(:iczn, author_year) : author_year
   end
 
   # The author part of the citation of a name no longer in its original

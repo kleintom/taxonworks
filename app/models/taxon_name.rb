@@ -1455,9 +1455,6 @@ class TaxonName < ApplicationRecord
   # @return [String, nil]
   #   the authors, and year, with parentheses as inferred by the data
   def iczn_author_and_year(taxon)
-    ay = nil
-    p = nil
-
     misapplication = TaxonNameRelationship.where_subject_is_taxon_name(taxon).with_type_string('TaxonNameRelationship::Iczn::Invalidating::Misapplication')
     misspelling = TaxonNameRelationship.where_subject_is_taxon_name(taxon).with_type_array(TAXON_NAME_RELATIONSHIP_NAMES_MISSPELLING_AUTHOR_STRING)
 
@@ -1469,25 +1466,17 @@ class TaxonName < ApplicationRecord
       a = [taxon.try(:author_string)]
       y = [taxon.try(:year_integer)]
     end
-    # A stored recombination, "(Author)": unwrap it, so the year can go
-    # inside the parentheses when they're put back.
     # TODO: draw from cached_author
-    p = false
-    if a[0]
-      original = Utilities::Nomenclature::AuthorCitation
-        .original_author_year(:iczn, a[0])
-      p = original != a[0]
-      a[0] = original
-    end
 
-    ay = (a + y).compact.join(', ')
-
-    obj = misapplication.empty? ? nil : misapplication.first.object_taxon_name
-
+    # Only species-group names are cited as recombinations (Art. 51.3).
+    recombination = false
     if SPECIES_RANK_NAMES_ICZN.include?(taxon.rank_string)
-      if p
-        ay = Utilities::Nomenclature::AuthorCitation.recombination(:iczn, ay)
-      else
+      # With no original combination relationships, a stored "(Author)" is
+      # what says the name is a recombination; otherwise it's one when it's
+      # no longer in its original genus.
+      recombination = !a[0].nil? &&
+        Utilities::Nomenclature::AuthorCitation.recombination_form?(a[0])
+      if !recombination
         og = taxon.original_genus
         if self.type == 'Combination'
           cg = genus
@@ -1495,14 +1484,18 @@ class TaxonName < ApplicationRecord
           par = TaxonNameRelationship.where_subject_is_taxon_name(taxon).with_type_array(TAXON_NAME_RELATIONSHIP_NAMES_MISSPELLING_AUTHOR_PARENTHESES).any?
           cg = (par == false && !misspelling.empty?) ? og : ancestor_at_rank('genus')
         end
-        if !og.nil? && !cg.nil?
-          if og.normalized_genus.id != cg.normalized_genus.id
-            ay = Utilities::Nomenclature::AuthorCitation
-              .recombination(:iczn, ay)
-          end
-        end
+        recombination = !og.nil? && !cg.nil? &&
+          og.normalized_genus.id != cg.normalized_genus.id
       end
-    elsif FAMILY_RANK_NAMES_ICZN.include?(taxon.rank_string) && !y.empty? && cached_nomenclature_date&.year != y.first && !mobj.present?
+    end
+
+    ay = Utilities::Nomenclature::AuthorCitation.author_year(
+      :iczn, a[0], y[0], recombination:
+    )
+
+    obj = misapplication.empty? ? nil : misapplication.first.object_taxon_name
+
+    if FAMILY_RANK_NAMES_ICZN.include?(taxon.rank_string) && !y.empty? && cached_nomenclature_date&.year != y.first && !mobj.present?
       ay = ay + ' [' + cached_nomenclature_date&.year.to_s + ']'
       ay = ay.gsub(' []', '')
     end

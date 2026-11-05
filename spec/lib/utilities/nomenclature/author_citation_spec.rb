@@ -72,6 +72,53 @@ describe Utilities::Nomenclature::AuthorCitation do
     end
   end
 
+  context '.author_year' do
+    context ':iczn' do
+      specify 'joins author and year' do
+        expect(v.author_year(:iczn, 'Linnaeus', 1758, recombination: false))
+          .to eq('Linnaeus, 1758')
+      end
+
+      specify 'wraps both for a recombination' do
+        expect(v.author_year(:iczn, 'Linnaeus', 1758, recombination: true))
+          .to eq('(Linnaeus, 1758)')
+      end
+
+      specify 'unwraps a stored recombination form before adding the year' do
+        expect(
+          v.author_year(:iczn, '(Linnaeus)', 1758, recombination: true)
+        ).to eq('(Linnaeus, 1758)')
+      end
+
+      # e.g. a genus-group name: parentheses are for species-group names.
+      specify 'drops a stored recombination form when it isn\'t one' do
+        expect(
+          v.author_year(:iczn, '(Linnaeus)', 1758, recombination: false)
+        ).to eq('Linnaeus, 1758')
+      end
+
+      specify 'with no year is the author' do
+        expect(v.author_year(:iczn, 'Linnaeus', nil, recombination: true))
+          .to eq('(Linnaeus)')
+      end
+
+      specify 'with no author is the year' do
+        expect(v.author_year(:iczn, nil, 1758, recombination: false))
+          .to eq('1758')
+      end
+
+      specify 'with neither is empty' do
+        expect(v.author_year(:iczn, nil, nil, recombination: true)).to eq('')
+      end
+    end
+
+    specify 'other codes aren\'t cited with a year' do
+      expect {
+        v.author_year(:icn, 'Moench', 1794, recombination: false)
+      }.to raise_error(ArgumentError)
+    end
+  end
+
   context '.recombination' do
     specify 'an empty original author is returned as-is' do
       expect(v.recombination(:iczn, '')).to eq('')

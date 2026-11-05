@@ -146,6 +146,54 @@ describe Utilities::Nomenclature::AuthorCitation do
     end
   end
 
+  # ICN Art. 46.5 Ex. 32
+  context '.ex' do
+    specify 'puts the ascribed author before the publishing author' do
+      expect(v.ex(:icn, 'Nutt.', 'Seem.')).to eq('Nutt. ex Seem.')
+    end
+
+    specify 'with no ascribed author is the publishing author' do
+      [nil, '', ' '].each do |a|
+        expect(v.ex(:icn, a, 'Seem.')).to eq('Seem.')
+      end
+    end
+
+    specify 'goes inside the parentheses of a recombination' do
+      expect(v.recombination(:icn, v.ex(:icn, 'Douglas', 'D. Don'), 'Lindl.'))
+        .to eq('(Douglas ex D. Don) Lindl.')
+    end
+
+    specify 'is only written for :icn' do
+      expect { v.ex(:iczn, 'Nutt.', 'Seem.') }.to raise_error(ArgumentError)
+    end
+  end
+
+  context '.misapplication' do
+    # Bocchar leucaspis, a misapplication of Leptocentrus leucaspis.
+    specify ':iczn cites the name as established with its year' do
+      expect(v.misapplication(:iczn, 'Melichar, 1905', 'Walker', 1858))
+        .to eq('Melichar, 1905 non Walker, 1858')
+    end
+
+    specify ':icn cites the name as established without a year' do
+      expect(v.misapplication(:icn, 'De Wild.', 'Vahl'))
+        .to eq('De Wild. non Vahl')
+    end
+
+    specify 'with no author is the citation' do
+      [nil, '', ' '].each do |a|
+        expect(v.misapplication(:iczn, 'Melichar, 1905', a, 1858))
+          .to eq('Melichar, 1905')
+      end
+    end
+
+    specify 'is only written for :iczn and :icn' do
+      expect {
+        v.misapplication(:icnp, 'Smith', 'Jones')
+      }.to raise_error(ArgumentError)
+    end
+  end
+
   context '.recombination' do
     specify 'an empty original author is returned as-is' do
       expect(v.recombination(:iczn, '')).to eq('')

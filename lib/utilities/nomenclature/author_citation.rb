@@ -129,6 +129,69 @@ module Utilities::Nomenclature::AuthorCitation
     author_year
   end
 
+  # The author of a name ascribed by its publishing author to someone else,
+  # e.g. "Nutt. ex Seem.": the author it was ascribed to, " ex ", then the
+  # publishing author.
+  #
+  # ICN Art. 46.5: when the validating description isn't ascribed to or
+  # associated with the author the name was ascribed to, the name is the
+  # publishing author's, "However ... authorship as ascribed, followed by
+  # 'ex', may be inserted before the name(s) of the publishing author(s)",
+  # e.g. "G. tomentosum Nutt. ex Seem. or G. tomentosum Seem." Art. 46.10
+  # lets the publishing author adopt the "ex" form in the protologue, Art.
+  # 46.7 allows it for a pre-starting-point author. But Art. 46.4: a name
+  # taken up from a different "name" that wasn't validly published is
+  # cited with only its publishing author, "A. drummondii Steud., not A.
+  # drummondii 'Nees ex Steud.'". Which applies is the caller's to decide.
+  #
+  # A recombination keeps the "ex" inside the parentheses, e.g. "(Douglas
+  # ex D. Don) Lindl.": pass the result to recombination.
+  # @param nomenclatural_code [Symbol] :icn
+  # @param ascribed_author [String, nil] who the name was ascribed to
+  # @param author [String, nil] the publishing author
+  # @return [String, nil] author as-is when there's no ascribed_author
+  def self.ex(nomenclatural_code, ascribed_author, author)
+    if nomenclatural_code != :icn
+      raise ArgumentError, 'ex is only written for :icn, not ' \
+        "#{nomenclatural_code.inspect}"
+    end
+    return author if ascribed_author.nil? || ascribed_author.strip.empty?
+
+    "#{ascribed_author} ex #{author}"
+  end
+
+  # The citation of a misapplied name, the use of a name by a later author
+  # for a taxon other than the one it was established for: citation, the
+  # later author's (as built by author_year or recombination), followed by
+  # " non " and the author (and year) of the name as established, e.g.
+  # "Melichar, 1905 non Walker, 1858".
+  #
+  # ICZN Art. 51.2.1: a subsequent user is separated from the name "in some
+  # distinctive and explicit manner, but not by parentheses", e.g. "Cancer
+  # pagurus Linnaeus sensu Latreille". " non " is TaxonWorks' manner.
+  #
+  # ICN Rec. 50D.1: a misapplied name is indicated by "auct. non" followed by
+  # the original author, e.g. "F. exasperata auct. non Vahl", the
+  # misidentification's author going in its bibliographic reference. A bare
+  # "non" marks a later homonym (Rec. 50C.1, "Ulmus racemosa Thomas ... non
+  # Borkh. 1800"), so TaxonWorks' "Thomas non Borkh." doesn't follow the
+  # recommendation.
+  # @param nomenclatural_code [Symbol] :iczn, :icn
+  # @param citation [String, nil] the misapplied name's
+  # @param author [String, nil] the author of the name as established
+  # @param year [Integer, nil] its year; TaxonWorks cites one only for the
+  #   ICZN (see author_year)
+  # @return [String, nil] citation as-is when there's no author
+  def self.misapplication(nomenclatural_code, citation, author, year = nil)
+    if !%i{iczn icn}.include?(nomenclatural_code)
+      raise ArgumentError, 'misapplication is only written for :iczn and ' \
+        ":icn, not #{nomenclatural_code.inspect}"
+    end
+    return citation if author.nil? || author.strip.empty?
+
+    "#{citation} non #{[author, year].compact.join(', ')}"
+  end
+
   # The author part of the citation of a name no longer in its original
   # combination (or, for the ICN and ICNP, rank).
   # @param nomenclatural_code [Symbol, nil] :iczn, :icn, :icnp, :icvcn

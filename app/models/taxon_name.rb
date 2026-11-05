@@ -1435,8 +1435,12 @@ class TaxonName < ApplicationRecord
       cc = current_combination.empty? ? self : current_combination.first.subject_taxon_name
     end
 
-    unless originally_invalid.nil?
-      ay = originally_invalid.subject_taxon_name.try(:author_string).to_s + ' ex ' + ay.to_s
+    # The name was ascribed to the author of a name not effectively
+    # published.
+    if !originally_invalid.nil?
+      ay = Utilities::Nomenclature::AuthorCitation.ex(
+        :icn, originally_invalid.subject_taxon_name.author_string, ay
+      )
     end
 
     if self.author_string.present? && mobj.id != cc.id
@@ -1445,8 +1449,10 @@ class TaxonName < ApplicationRecord
       )
     end
 
-    if !misapplication.empty? && m_obj.author_string.present?
-      ay += ' non ' + m_obj.author_string
+    if !misapplication.empty?
+      ay = Utilities::Nomenclature::AuthorCitation.misapplication(
+        :icn, ay, m_obj.author_string
+      )
     end
 
     (ay.presence)
@@ -1466,17 +1472,13 @@ class TaxonName < ApplicationRecord
       a = [taxon.try(:author_string)]
       y = [taxon.try(:year_integer)]
     end
-    # TODO: draw from cached_author
 
     # Only species-group names are cited as recombinations (Art. 51.3).
     recombination = false
     if SPECIES_RANK_NAMES_ICZN.include?(taxon.rank_string)
-      # With no original combination relationships, a stored "(Author)" is
-      # what says the name is a recombination; otherwise it's one when it's
-      # no longer in its original genus.
       recombination = !a[0].nil? &&
         Utilities::Nomenclature::AuthorCitation.recombination_form?(a[0])
-      if !recombination
+      if !recombination # try harder
         og = taxon.original_genus
         if self.type == 'Combination'
           cg = genus
@@ -1503,8 +1505,10 @@ class TaxonName < ApplicationRecord
 
     obj = misapplication.empty? ? nil : misapplication.first.object_taxon_name
 
-    unless misapplication.empty? || obj.author_string.blank?
-      ay += ' non ' + ([obj.author_string] + [obj.year_integer]).compact.join(', ')
+    if !misapplication.empty?
+      ay = Utilities::Nomenclature::AuthorCitation.misapplication(
+        :iczn, ay, obj.author_string, obj.year_integer
+      )
     end
 
     (ay.presence)

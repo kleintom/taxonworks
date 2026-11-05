@@ -112,7 +112,7 @@ describe Utilities::Nomenclature::AuthorCitation do
       end
     end
 
-    specify 'other codes aren\'t cited with a year' do
+    specify 'is only written for :iczn' do
       expect {
         v.author_year(:icn, 'Moench', 1794, recombination: false)
       }.to raise_error(ArgumentError)

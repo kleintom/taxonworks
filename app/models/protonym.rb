@@ -200,7 +200,7 @@ class Protonym < TaxonName
   )
     return [nil, nil] if authorship.blank?
 
-    # Anything that isn't a year, e.g. "n.d.", is no year (not 0).
+    # Anything that isn't a year, e.g. "n.d.", is no year.
     current_combination_year = current_combination_year.to_i
     current_combination_year = nil if current_combination_year <= 0
 

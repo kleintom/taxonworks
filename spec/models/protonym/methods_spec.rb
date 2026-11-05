@@ -293,6 +293,20 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
       expect(author).not_to match(/\d/)
     end
 
+    # Hydrocoleum glutinosum, ICN Art. 46.7 Ex. 41 (the years added). See
+    # the TODO on Utilities::Nomenclature::AuthorCitation.recombination_form?.
+    # Whether verbatim_author keeps the "(C. Agardh) ex" credit is undecided,
+    # so only the publisher ending it is checked.
+    xspecify 'an ICN name credited to a pre-starting-point author is an ' \
+      'original combination by its publisher' do
+      author, year = Protonym.verbatim_author_and_year(
+        '(C. Agardh 1824) ex Gomont 1892', nomenclatural_code: :icn
+      )
+      expect(year).to eq(1892)
+      expect(author).to end_with('Gomont')
+      expect(author).not_to match(/\d/)
+    end
+
     specify 'ignores a current_combination_year that isn\'t a year' do
       ['n.d.', '0', 0].each do |current_combination_year|
         expect(

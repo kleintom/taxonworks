@@ -35,6 +35,17 @@ module Utilities::Nomenclature::AuthorCitation
   # Protonym.verbatim_author_and_year). A later recombination keeps the
   # credit inside the parentheses and is read correctly:
   # "(Palleroni and Holmes 1981 ex Burkholder 1950) Yabuuchi et al. 1993".
+  #
+  # Likewise the ICN (Art. 46.7) lets a pre-starting-point author be cited
+  # in a leading parenthetical followed by "ex", e.g. Hydrocoleum glutinosum
+  # "(C. Agardh) ex Gomont": an original combination by Gomont, not a
+  # recombination (a pre-starting-point name isn't validly published). For
+  # :icn a parenthetical followed by "ex" should be read that way. Today
+  # gnparser drops the "ex Gomont", so the name is stored as "(C. Agardh)",
+  # losing its author, with Agardh's year if the parenthetical has one (see
+  # the xspec 'an ICN name credited to a pre-starting-point author is an
+  # original combination by its publisher' on
+  # Protonym.verbatim_author_and_year).
   # @param citation [String]
   # @return [Boolean]
   def self.recombination_form?(citation)
@@ -76,19 +87,26 @@ module Utilities::Nomenclature::AuthorCitation
   # "Linnaeus, 1758", or "(Linnaeus, 1758)" for a recombination (Art.
   # 51.3: the year goes inside the parentheses). An author stored in
   # recombination form, "(Linnaeus)", is unwrapped first, and re-wrapped
-  # only if recombination is true: whether the name is one (e.g. only
-  # species-group names are) is the caller's to decide.
+  # only if recombination is true. Whether the name is one is the caller's
+  # to decide.
   #
-  # Only the ICZN: TaxonWorks cites the other codes' names without a year.
+  # Only written for the ICZN, the one code whose names TaxonWorks cites
+  # with a year (see TaxonName#icn_author_and_year). The codes differ on
+  # years: the ICNP cites them (Rule 34b, Note 1), the ICN doesn't make them
+  # part of the author citation (Art. 46.1 Ex. 1: "Rosa L. (Sp. Pl.: 491.
+  # 1753)", the year is in the bibliographic reference).
   # @param nomenclatural_code [Symbol] :iczn
   # @param author [String, nil] e.g. a Protonym's author_string
   # @param year [Integer, nil]
-  # @param recombination [Boolean]
+  # @param recombination [Boolean] whether the name is a species-group
+  #   name combined with a genus other than its original one. Nomenclaturally
+  #   only a species-group name can be (Art. 51.3), so pass true only in that
+  #   case.
   # @return [String] empty when there's neither author nor year
   def self.author_year(nomenclatural_code, author, year, recombination:)
     if nomenclatural_code != :iczn
-      raise ArgumentError, "#{nomenclatural_code.inspect} isn't cited with " \
-        'a year'
+      raise ArgumentError, 'author_year is only written for :iczn, not ' \
+        "#{nomenclatural_code.inspect}"
     end
 
     if !author.nil? && recombination_form?(author)

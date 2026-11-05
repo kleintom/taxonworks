@@ -229,20 +229,25 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
   # strings are Catalogue of Life's (dataset 3LR, 2026-11) for the name noted.
   context '.verbatim_author_and_year' do
     specify 'splits "Linnaeus, 1758" into author and year' do
-      expect(Protonym.verbatim_author_and_year('Linnaeus, 1758'))
-        .to eq(['Linnaeus', 1758])
+      expect(
+        Protonym.verbatim_author_and_year(
+          'Linnaeus, 1758', nomenclatural_code: :iczn
+        )
+      ).to eq(['Linnaeus', 1758])
     end
 
     specify 'blank authorship is [nil, nil]' do
-      expect(Protonym.verbatim_author_and_year(nil)).to eq([nil, nil])
-      expect(Protonym.verbatim_author_and_year('')).to eq([nil, nil])
+      expect(Protonym.verbatim_author_and_year(nil, nomenclatural_code: :iczn))
+        .to eq([nil, nil])
+      expect(Protonym.verbatim_author_and_year('', nomenclatural_code: :iczn))
+        .to eq([nil, nil])
     end
 
     specify 'falls back to current_combination_year when the authorship ' \
       'has no year' do
       expect(
         Protonym.verbatim_author_and_year(
-          'L.', current_combination_year: '1753'
+          'L.', current_combination_year: '1753', nomenclatural_code: :icn
         )
       ).to eq(['L.', 1753])
     end
@@ -313,11 +318,31 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
       ).to eq(['(Curtis, 1829) non Linnaeus, 1758', nil])
     end
 
+    # Anomalopus truncatus, ICZN Rec. 22A.2.3 Examples: the imprint date is
+    # left out, the actual date is the year.
+    specify 'drops an imprint date inside a recombination\'s parentheses' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          '(Peters, 1876 ["1877"])', nomenclatural_code: :iczn
+        )
+      ).to eq(['(Peters)', 1876])
+    end
+
+    # Garbled real data, "J.Jung": gnparser stops partway through, so the
+    # authorship it finds, "(Franch. & Sav.) J.Jun", is incomplete.
+    specify 'returns authorship gnparser only partly parses as-is' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          '(Franch. & Sav.) J.Jun g & H.K. Choi', nomenclatural_code: :icn
+        )
+      ).to eq(['(Franch. & Sav.) J.Jun g & H.K. Choi', nil])
+    end
+
     specify 'ignores a current_combination_year that isn\'t a year' do
       ['n.d.', '0', 0].each do |current_combination_year|
         expect(
           Protonym.verbatim_author_and_year(
-            'Linnaeus', current_combination_year:
+            'Linnaeus', current_combination_year:, nomenclatural_code: :iczn
           )
         ).to eq(['Linnaeus', nil])
       end
@@ -326,7 +351,8 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
     specify 'returns authorship gnparser finds no authors in as-is' do
       expect(
         Protonym.verbatim_author_and_year(
-          'sensu Smith', current_combination_year: '1900'
+          'sensu Smith', current_combination_year: '1900',
+          nomenclatural_code: :iczn
         )
       ).to eq(['sensu Smith', 1900])
     end
@@ -356,8 +382,11 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
     end
 
     specify 'decodes HTML entities in authorship returned as-is' do
-      expect(Protonym.verbatim_author_and_year('sensu Smith &amp; Jones'))
-        .to eq(['sensu Smith & Jones', nil])
+      expect(
+        Protonym.verbatim_author_and_year(
+          'sensu Smith &amp; Jones', nomenclatural_code: :iczn
+        )
+      ).to eq(['sensu Smith & Jones', nil])
     end
   end
 

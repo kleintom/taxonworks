@@ -38,9 +38,10 @@ module Vendor
     # What gnparser leaves unparsed at the end is the tail. One that starts
     # with one of AUTHORSHIP_CONNECTIVES, e.g. "ex Gomont 1892" or "non
     # Boheman, 1852", is given as that word (connective) and the parts of
-    # what follows it (authorship, nil if gnparser finds none). Any other,
-    # e.g. "(Approved Lists 1980)" on ICNP names (Rule 33b Note 3) or "nom.
-    # cons.", isn't kept.
+    # what follows it (authorship, nil if gnparser finds none). An
+    # annotation, e.g. "(Approved Lists 1980)" on ICNP names (Rule 33b Note
+    # 3) or "nom. cons.", isn't kept. Any other is given with no connective:
+    # see .authorship_tail.
     #
     # Why not the author lists: gnparser normalizes them, and normalized
     # authors aren't what was written:
@@ -81,8 +82,6 @@ module Vendor
     #     33c Note 2), e.g. "(ex Jahn, 1924) Reichenbach 2007" - the reviver
     #     is the name's author and its priority dates from the revival (Rule
     #     28a, Note 2), so its year is 2007
-    #   * a parenthesized year after "in", e.g. "Bird in Gellert et al.
-    #     (2023)"
     #
     # @param authorship [String, nil]
     # @return [Hash, nil] {
@@ -90,8 +89,8 @@ module Vendor
     #     parenthetical_year: Integer or nil,
     #     author: String or nil,
     #     year: Integer or nil,
-    #     tail: nil or { connective: String, authorship: Hash or nil }, the
-    #       Hash being these parts again
+    #     tail: nil or { connective: String or nil, authorship: Hash or nil },
+    #       the Hash being these parts again
     #   }; nil when authorship is blank or gnparser finds no authorship in it.
     def self.authorship_parts(authorship)
       return nil if authorship.blank?
@@ -112,7 +111,11 @@ module Vendor
       words = authorship_words(parsed, text)
       return nil if words.nil?
 
-      tail = authorship_tail(parsed[:tail])
+      tail = authorship_tail(
+        parsed[:tail],
+        closes_parenthetical: text.start_with?('(') &&
+          ::Utilities::Strings.closing_paren_index(text) == text.length
+      )
 
       if !text.start_with?('(')
         return {
@@ -126,7 +129,8 @@ module Vendor
 
       # gnparser calls the parenthetical originalAuth and what follows it
       # combinationAuth.
-      close_paren = closing_paren_index(text, 0)
+      # (gnparser accepts an unclosed "(Linnaeus 1758".)
+      close_paren = ::Utilities::Strings.closing_paren_index(text)
       {
         parenthetical_author: author_text(text, words, 0, close_paren),
         parenthetical_year: group_year(original),
@@ -136,14 +140,54 @@ module Vendor
       }
     end
 
-    # gnparser's unparsed tail, when it's one of AUTHORSHIP_CONNECTIVES
-    # followed by more authorship, e.g. " ex Gomont 1892" -> { connective:
-    # 'ex', authorship: { ..., author: 'Gomont', year: 1892, ... } }.
+    # Tails that annotate a citation without changing whose it is, and so
+    # are dropped:
+    #   * the ICNP's "(Approved Lists 1980)" (Rule 33b Note 3)
+    #   * an imprint date after the actual one (ICZN Rec. 22A.2.3),
+    #     bracketed, e.g. "Storr, 1970 [\"1969\"]", "Storr, 1970 (\"1969\")",
+    #     "Storr, 1970 (imprint 1969)", "Storr, 1970 (not 1969)", or with no
+    #     quotes, "Smith, 1900 [1899]"; the actual date is the name's. The
+    #     unquoted form is also how TaxonWorks cites a family-group name's
+    #     date of priority (ICZN Art. 40.2.1, "Bezzi, 1913 [1847]", see
+    #     AuthorCitation.citation), where the first year is the name's too.
+    #     (gnparser reads a bracketed year with none before it, "Stål
+    #     [1865]", as the year itself.)
+    #   * nomenclatural status: an abbreviation and its qualifiers, e.g. "nom.
+    #     cons. prop.", "nom.illegit.", "comb. nov.", "stat. nov.", "ined."
+    DROPPED_AUTHORSHIP_TAIL = /\A(?:(?:
+      \(Approved\sLists\s\d{4}\) |
+      [(\[](?:imprint\s|not\s)?["“]?\d{4}["”]?[)\]] |
+      (?:nom|comb|stat|orth|gen|sp)\.(?:\s?[[:lower:]]+\.)+ |
+      ined\.
+    )[\s,;]*)+\z/x
+
+    # gnparser's unparsed tail:
+    #   * one of AUTHORSHIP_CONNECTIVES followed by more authorship, e.g. "
+    #     ex Gomont 1892" -> { connective: 'ex', authorship: { ..., author:
+    #     'Gomont', year: 1892, ... } }. gnparser keeps the punctuation
+    #     separating the tail from the citation, e.g. ", non Rchb. 1824",
+    #     which isn't part of the connective.
+    #   * nil for none, or for a DROPPED_AUTHORSHIP_TAIL. When gnparser stopped
+    #     inside a leading parenthetical, the tail ends with the ")" closing
+    #     it, e.g. "[\"1877\"])" for "(Peters, 1876 [\"1877\"])"
+    #     (closes_parenthetical), which isn't part of the annotation.
+    #   * { connective: nil, authorship: nil } for any other. Most are where
+    #     gnparser stopped partway through the authorship, e.g. "& Jones,
+    #     1900" or "et al., 1900", so the authorship found is incomplete and
+    #     the citation can't be read from it.
     # @param tail [String, nil]
+    # @param closes_parenthetical [Boolean] whether the authorship gnparser
+    #   found opens a parenthetical it doesn't close
     # @return [Hash, nil]
-    def self.authorship_tail(tail)
-      connective, rest = tail.to_s.strip.split(/\s+/, 2)
-      return nil if rest.nil? || !AUTHORSHIP_CONNECTIVES.include?(connective)
+    def self.authorship_tail(tail, closes_parenthetical: false)
+      text = tail.to_s.sub(/\A[\s,;]+/, '')
+      annotation = closes_parenthetical ? text.sub(/\)\s*\z/, '') : text
+      return nil if text.empty? || annotation.match?(DROPPED_AUTHORSHIP_TAIL)
+
+      connective, rest = text.split(/\s+/, 2)
+      if rest.nil? || !AUTHORSHIP_CONNECTIVES.include?(connective)
+        return { connective: nil, authorship: nil }
+      end
 
       { connective:, authorship: authorship_parts(rest) }
     end
@@ -211,21 +255,6 @@ module Vendor
       text[authors.first[:start]...authors.last[:end]].squish
     end
     private_class_method :author_text
-
-    # The index in text of the paren closing the one at open_index, or
-    # text.length when it's never closed (gnparser accepts
-    # "(Linnaeus 1758").
-    # @return [Integer]
-    def self.closing_paren_index(text, open_index)
-      depth = 0
-      (open_index...text.length).each do |i|
-        depth += 1 if text[i] == '('
-        depth -= 1 if text[i] == ')'
-        return i if depth == 0
-      end
-      text.length
-    end
-    private_class_method :closing_paren_index
 
     class Result
       # query string

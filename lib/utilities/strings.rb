@@ -150,6 +150,20 @@ module Utilities::Strings
     string.split(/[^[[:word:]]]+/).select { |b| !(b =~ /\d/) }.reject { |b| b.empty? }
   end
 
+  # @param text [String]
+  # @param open_index [Integer] the index of a "(" in text
+  # @return [Integer] the index of the ")" closing it, or text.length when
+  #   it's never closed
+  def self.closing_paren_index(text, open_index = 0)
+    depth = 0
+    (open_index...text.length).each do |i|
+      depth += 1 if text[i] == '('
+      depth -= 1 if text[i] == ')'
+      return i if depth == 0
+    end
+    text.length
+  end
+
   # alphanumeric allows searches by page number, year, etc.
   def self.alphanumeric_strings(string)
     return [] if string.nil? || string.length == 0

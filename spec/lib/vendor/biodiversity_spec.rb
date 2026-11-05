@@ -655,20 +655,78 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
           .to eq('F. Muell.')
       end
 
+      # Bartlingia, ICN Rec. 50C.1 Ex. 3, with a comma before "non".
+      specify 'after punctuation is a connective and its authorship' do
+        tail = parts('Brongn. 1827, non Rchb. 1824')[:tail]
+        expect(tail[:connective]).to eq('non')
+        expect(tail.dig(:authorship, :author)).to eq('Rchb.')
+
+        expect(parts('Smith, 1900; sensu Jones')[:tail][:connective])
+          .to eq('sensu')
+      end
+
       specify 'whose authorship gnparser can\'t find has none' do
         expect(parts('L. sensu lato')[:tail])
           .to eq(connective: 'sensu', authorship: nil)
       end
 
       # Lindera, ICN Rec. 50E.1 Ex. 2.
-      specify 'not starting with a connective is dropped' do
-        expect(parts('Thunb. nom. cons.')[:tail]).to be_nil
+      specify 'of nomenclatural status is dropped' do
+        [
+          'Thunb. nom. cons.', 'Smith, 1900, nom. illeg.', 'Smith comb. ined.',
+          'Smith nom. illegit.', 'Smith nom.cons.', 'L. nom. cons. prop.',
+          '(L.) Smith comb. nov.', 'Smith stat. nov.', 'Smith, 1900 nom. nov.',
+          'Smith ined.'
+        ].each do |authorship|
+          expect(parts(authorship)[:tail]).to be_nil, authorship
+        end
       end
 
-      # Garbled real data, "J.Jung".
-      specify 'starting with another lowercase word is dropped' do
+      # ICZN Rec. 22A.2.3 Examples, and with no quotes.
+      specify 'of an imprint date is dropped' do
+        [
+          'Storr, 1970 ("1969")', 'Storr, 1970 ["1969"]',
+          'Storr, 1970 (imprint 1969)', 'Storr, 1970 (not 1969)',
+          'Storr, 1970 [1969]'
+        ].each do |authorship|
+          expect(parts_a(authorship)).to eq([nil, nil, 'Storr', 1970]),
+            authorship
+        end
+      end
+
+      # Anomalopus truncatus, ICZN Rec. 22A.2.3 Examples: gnparser stops
+      # inside the parentheses.
+      specify 'of an imprint date inside a recombination\'s parentheses is ' \
+        'dropped' do
+        expect(parts('(Peters, 1876 ["1877"])')).to eq(
+          parenthetical_author: 'Peters', parenthetical_year: 1876,
+          author: nil, year: nil, tail: nil
+        )
+      end
+
+      specify 'of a closing paren with nothing open has no connective' do
+        expect(parts('Storr, 1970 ["1969"])')[:tail])
+          .to eq(connective: nil, authorship: nil)
+      end
+
+      specify 'of a second year has no connective' do
+        expect(parts('Smith, 1900, 1901')[:tail])
+          .to eq(connective: nil, authorship: nil)
+      end
+
+      # Garbled real data, "J.Jung": gnparser stops partway through.
+      specify 'starting with another lowercase word has no connective' do
         expect(parts('(Franch. & Sav.) J.Jun g & H.K. Choi')[:tail])
-          .to be_nil
+          .to eq(connective: nil, authorship: nil)
+      end
+
+      specify 'starting with a connective inside punctuation has no ' \
+        'connective' do
+        ['Smith, 1900 [non Jones, 1890]', 'Smith, 1900 (non Jones)',
+         'Smith, 1900 auct. non Jones'].each do |authorship|
+          expect(parts(authorship)[:tail])
+            .to eq(connective: nil, authorship: nil)
+        end
       end
     end
 
@@ -689,6 +747,12 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
       specify 'takes the year of an "in" citation' do
         expect(parts_a('Leach in Brewster, 1815'))
           .to eq([nil, nil, 'Leach in Brewster', 1815])
+      end
+
+      # Jurundurella, without the "Błażewicz" gnparser can't parse yet.
+      specify 'takes a parenthesized year after "in"' do
+        expect(parts_a('Bird in Gellert et al. (2023)'))
+          .to eq([nil, nil, 'Bird in Gellert et al.', 2023])
       end
 
       # Not in the 2026-11 3LR sample; a common form for Dejean's names. The
@@ -739,10 +803,15 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
           .to eq([nil, nil, 'Strömpl et al.', 1999])
       end
 
-      # Agathotanais frutosae
+      # Agathotanais frutosae, Jurundurella. "Stępień" parses, "Błażewicz"
+      # doesn't.
       xspecify 'splits authors with Polish letters' do
         expect(parts_a('Stępień, Jakiel & Błażewicz, 2022'))
           .to eq([nil, nil, 'Stępień, Jakiel & Błażewicz', 2022])
+        expect(parts_a('Gellert, Błażewicz & Bird in Gellert et al. (2023)'))
+          .to eq(
+            [nil, nil, 'Gellert, Błażewicz & Bird in Gellert et al.', 2023]
+          )
       end
 
       # Jahnella thaxteri. A revived name (cited per ICNP Rule 33c Note 2) is
@@ -752,14 +821,6 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
       # Protonym.verbatim_author_and_year does, is wrong for these.)
       xspecify 'finds the reviver\'s year after the parenthetical' do
         expect(parts('(ex Jahn, 1924) Reichenbach 2007')[:year]).to eq(2007)
-      end
-
-      # Jurundurella
-      xspecify 'takes a parenthesized year after "in"' do
-        expect(parts_a('Gellert, Błażewicz & Bird in Gellert et al. (2023)'))
-          .to eq(
-            [nil, nil, 'Gellert, Błażewicz & Bird in Gellert et al.', 2023]
-          )
       end
     end
   end

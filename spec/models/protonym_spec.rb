@@ -84,6 +84,36 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
       expect(p.errors.messages[:verbatim_author]).to_not be_empty
     end
 
+    context '#is_original_name?' do
+      {
+        'Linnaeus, 1758' => true,
+        '(Linnaeus, 1758)' => false,
+        '(C. Agardh) ex Gomont' => true,
+        nil => true
+      }.each do |cached_author_year, expected|
+        specify "#{cached_author_year.inspect} is #{expected}" do
+          expect(Protonym.new(cached_author_year:).is_original_name?)
+            .to eq(expected)
+        end
+      end
+
+      specify 'agrees with .is_original_name and .is_not_original_name' do
+        names = [
+          'Linnaeus, 1758', '(Linnaeus, 1758)', '(C. Agardh) ex Gomont', nil
+        ].map do |a|
+          n = FactoryBot.create(:valid_protonym)
+          n.update_column(:cached_author_year, a)
+          n
+        end
+        ids = names.map(&:id)
+
+        expect(Protonym.where(id: ids).is_original_name)
+          .to match_array(names.select(&:is_original_name?))
+        expect(Protonym.where(id: ids).is_not_original_name)
+          .to match_array(names.reject(&:is_original_name?))
+      end
+    end
+
     context '#rank_class' do
       specify 'is valid when a NomenclaturalRank subclass' do
         protonym.rank_class = Ranks.lookup(:iczn, 'order')

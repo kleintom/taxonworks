@@ -150,9 +150,17 @@ class Protonym < TaxonName
   scope :is_family_group, -> { where("taxon_names.rank_class ILIKE '%family%'") }
   scope :is_species_or_genus_group, -> { where("taxon_names.rank_class ILIKE '%speciesgroup%' OR taxon_names.rank_class ILIKE '%genusgroup%'")   }
 
-  # Utilities::Nomenclature::AuthorCitation.recombination_form?, in SQL.
-  scope :is_original_name, -> { where("taxon_names.cached_author_year NOT ILIKE '(%'") }
-  scope :is_not_original_name, -> { where("taxon_names.cached_author_year ILIKE '(%'") }
+  # #is_original_name?, in SQL; the regex is
+  # Utilities::Nomenclature::AuthorCitation::PRE_STARTING_POINT_FORM.
+  scope :is_original_name, -> {
+    where("taxon_names.cached_author_year IS NULL OR " \
+      "taxon_names.cached_author_year NOT ILIKE '(%' OR " \
+      "taxon_names.cached_author_year ~ '^\\([^()]+\\)\\s+ex\\s'")
+  }
+  scope :is_not_original_name, -> {
+    where("taxon_names.cached_author_year ILIKE '(%' AND " \
+      "taxon_names.cached_author_year !~ '^\\([^()]+\\)\\s+ex\\s'")
+  }
 
   after_initialize :_initialize_cached_build_state
 
@@ -193,10 +201,11 @@ class Protonym < TaxonName
   #   name as currently combined, given apart from the citation; see
   #   Utilities::Nomenclature::AuthorCitation.from_parts
   # @param nomenclatural_code [Symbol, nil] the code of the rank the
-  #   Protonym is created at: :iczn, :icn, :icnp, :icvcn
+  #   Protonym is created at: :iczn, :icn, :icnp, :icvcn. Required: with nil
+  #   a recombination is read without its parentheses.
   # @return [Array(String, Integer), Array(nil, nil)]
   def self.verbatim_author_and_year(
-    authorship, current_combination_year: nil, nomenclatural_code: nil
+    authorship, nomenclatural_code:, current_combination_year: nil
   )
     return [nil, nil] if authorship.blank?
 
@@ -600,10 +609,14 @@ class Protonym < TaxonName
     HIGHER_RANK_NAMES.include?(rank_string)
   end
 
-  # @return [Boolean]
+  # @return [Boolean] whether cached_author_year isn't in parentheses, as a
+  #   recombination's is (see
+  #   Utilities::Nomenclature::AuthorCitation.recombination_form?); true
+  #   when there's no cached_author_year
   def is_original_name?
-    !::Utilities::Nomenclature::AuthorCitation
-      .recombination_form?(cached_author_year)
+    cached_author_year.nil? ||
+      !::Utilities::Nomenclature::AuthorCitation
+        .recombination_form?(cached_author_year)
   end
 
   # @return [Boolean]

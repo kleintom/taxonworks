@@ -145,6 +145,12 @@ describe Utilities::Nomenclature::AuthorCitation do
       expect(
         v.from_parts(:icn, **parts(author: 'L.', tail: tail('sensu')))
       ).to be_nil
+      expect(
+        v.from_parts(
+          :icn,
+          **parts(author: 'L.', tail: { connective: nil, authorship: nil })
+        )
+      ).to be_nil
     end
   end
 
@@ -158,19 +164,6 @@ describe Utilities::Nomenclature::AuthorCitation do
       specify 'wraps both for a recombination' do
         expect(v.citation(:iczn, 'Linnaeus', 1758, recombination: true))
           .to eq('(Linnaeus, 1758)')
-      end
-
-      specify 'unwraps a stored recombination form before adding the year' do
-        expect(
-          v.citation(:iczn, '(Linnaeus)', 1758, recombination: true)
-        ).to eq('(Linnaeus, 1758)')
-      end
-
-      # e.g. a genus-group name: parentheses are for species-group names.
-      specify 'drops a stored recombination form when it isn\'t one' do
-        expect(
-          v.citation(:iczn, '(Linnaeus)', 1758, recombination: false)
-        ).to eq('Linnaeus, 1758')
       end
 
       specify 'with no year is the author' do
@@ -304,6 +297,8 @@ describe Utilities::Nomenclature::AuthorCitation do
 
       specify 'with no combination author is just the wrapped original' do
         expect(v.recombination(:icn, 'Moench')).to eq('(Moench)')
+        expect(v.recombination(:icn, 'Moench', '')).to eq('(Moench)')
+        expect(v.recombination(:icn, 'Moench', ' ')).to eq('(Moench)')
       end
     end
 
@@ -336,12 +331,21 @@ describe Utilities::Nomenclature::AuthorCitation do
       ['Linnaeus, 1758', 'auct. non (L.) Benth.', 'Retz. (fruit)']
         .each { |c| expect(v.recombination_form?(c)).to be false }
     end
+
+    # Hydrocoleum glutinosum, ICN Art. 46.7 Ex. 41.
+    specify 'a pre-starting-point author followed by "ex"' do
+      expect(v.recombination_form?('(C. Agardh) ex Gomont')).to be false
+      expect(v.recombination_form?('(Douglas ex D. Don) Lindl.')).to be true
+    end
   end
 
   # Citations from real names.
   context '.original_author_year' do
     {
-      iczn: { '(Baker, 1899)' => 'Baker, 1899' },
+      iczn: {
+        '(Baker, 1899)' => 'Baker, 1899',
+        '((Götz), 1783)' => '(Götz), 1783'
+      },
       icn: {
         '(Seub.) Lowden' => 'Seub.',
         '(Douglas ex D. Don) Lindley (1833)' => 'Douglas ex D. Don',
@@ -358,10 +362,14 @@ describe Utilities::Nomenclature::AuthorCitation do
     end
 
     {
-      iczn: ['Baker, 1899', '(Baker, 1899) non Gillette, 1898'],
+      iczn: [
+        'Baker, 1899', '(Baker, 1899) non Gillette, 1898',
+        '(Baker, 1899) non (Gillette)', '(Selys, 1873'
+      ],
       icn: [
         'auct. non (L.) Benth.', 'Retz. (fruit)',
-        'Moench (pro sp.) [deltoides × nigra]', 'Lemmon (1892)'
+        'Moench (pro sp.) [deltoides × nigra]', 'Lemmon (1892)',
+        '(C. Agardh) ex Gomont'
       ],
       nil => ['(Baker, 1899)']
     }.each do |code, citations|
@@ -385,11 +393,21 @@ describe Utilities::Nomenclature::AuthorCitation do
       end
     end
 
-    specify 'codes that cite the combination author allow anything' do
-      %i{icn icnp icvcn}.each do |code|
-        ['(Migula) Castellani & Chalmers', '(Migula'].each do |a|
+    specify ':icnp and :icvcn allow a leading parenthetical, balanced' do
+      %i{icnp icvcn}.each do |code|
+        ['(Migula) Castellani & Chalmers', '(Migula)', 'Migula'].each do |a|
           expect(v.well_formed?(a, nomenclatural_code: code)).to be true
         end
+        ['(Migula', 'Migula) Castellani', 'Migula (Castellani)'].each do |a|
+          expect(v.well_formed?(a, nomenclatural_code: code)).to be false
+        end
+      end
+    end
+
+    # Real ICN verbatim_authors.
+    specify ':icn allows anything' do
+      ['(Migula', 'Retz. (fruit)', 'auct. non (L.) Benth.'].each do |a|
+        expect(v.well_formed?(a, nomenclatural_code: :icn)).to be true
       end
     end
   end

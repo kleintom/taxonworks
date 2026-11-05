@@ -118,6 +118,30 @@ describe TaxonName, type: :model, group: [:nomenclature] do
         expect(t.original_author_year).to eq('Seub.')
       end
 
+      # Legacy data predating the verbatim_author validation.
+      specify 'a malformed ICZN author is not parenthesized again' do
+        species.update_columns(
+          verbatim_author: '(Selys', year_of_publication: 1873
+        )
+        expect(species.reload.get_author_and_year).to eq('(Selys, 1873')
+      end
+
+      # Parentheses are for species-group names (ICZN Art. 51.3).
+      specify 'a wholly parenthesized ICZN genus author is not a ' \
+        'recombination' do
+        genus.update_columns(
+          verbatim_author: '(Selys)', year_of_publication: 1873
+        )
+        expect(genus.reload.get_author_and_year).to eq('Selys, 1873')
+      end
+
+      specify 'a wholly parenthesized ICZN author is a recombination' do
+        species.update_columns(
+          verbatim_author: '(Selys)', year_of_publication: 1873
+        )
+        expect(species.reload.get_author_and_year).to eq('(Selys, 1873)')
+      end
+
       # Escherichia coli
       specify 'ICNP and ICVCN author' do
         %w{

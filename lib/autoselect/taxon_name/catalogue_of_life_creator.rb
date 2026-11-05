@@ -129,8 +129,11 @@ module Autoselect
 
             # The rank's code, not @col_code: rank resolution falls back to
             # other codes when @col_code is nil or unrecognised.
-            # col_year is CoL's combinationAuthorship year, i.e. the
-            # current combination's.
+            # col_year is CoL's combinationAuthorship year, the current
+            # combination's, or when CoL has none its
+            # basionymOrCombinationAuthorship year (see
+            # Vendor::Colrapi.classified_usage); it's used only when the
+            # authorship has no year of its own.
             author, year = ::Protonym.verbatim_author_and_year(
               row[:col_authorship], current_combination_year: row[:col_year],
               nomenclatural_code: rank_class.constantize.nomenclatural_code

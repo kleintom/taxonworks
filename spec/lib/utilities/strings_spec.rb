@@ -184,4 +184,16 @@ describe Utilities::Strings do
     expect(l.only_integers?('1922 0 123')).to eq(true)
   end
 
+  context '.closing_paren_index' do
+    specify 'is the index of the paren closing the one at open_index' do
+      expect(l.closing_paren_index('(Smith) Jones')).to eq(6)
+      expect(l.closing_paren_index('((Götz), 1783)')).to eq(13)
+      expect(l.closing_paren_index('((Götz), 1783)', 1)).to eq(6)
+    end
+
+    specify 'is text.length when the paren is never closed' do
+      expect(l.closing_paren_index('(Selys, 1873')).to eq(12)
+    end
+  end
+
 end

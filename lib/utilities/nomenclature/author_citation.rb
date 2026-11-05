@@ -37,17 +37,20 @@ module Utilities::Nomenclature::AuthorCitation
   # credit inside the parentheses and is read correctly:
   # "(Palleroni and Holmes 1981 ex Burkholder 1950) Yabuuchi et al. 1993".
   #
-  # Likewise the ICN (Art. 46.7) lets a pre-starting-point author be cited
-  # in a leading parenthetical followed by "ex", e.g. Hydrocoleum glutinosum
-  # "(C. Agardh) ex Gomont": an original combination by Gomont, not a
-  # recombination (a pre-starting-point name isn't validly published).
-  # .from_parts reads it that way, but once stored, this reads it as a
-  # recombination: for :icn a parenthetical followed by "ex" shouldn't be.
+  # One exception, PRE_STARTING_POINT_FORM: the ICN (Art. 46.7) lets a
+  # pre-starting-point author be cited in a leading parenthetical followed by
+  # "ex", e.g. Hydrocoleum glutinosum "(C. Agardh) ex Gomont". That's an
+  # original combination by Gomont, not a recombination (a pre-starting-point
+  # name isn't validly published). Only the ICN writes that form, so it's
+  # read that way whatever the code.
   # @param citation [String]
   # @return [Boolean]
   def self.recombination_form?(citation)
-    citation.start_with?('(')
+    citation.start_with?('(') && !citation.match?(PRE_STARTING_POINT_FORM)
   end
+
+  # See .recombination_form?; also Protonym.is_original_name, in SQL.
+  PRE_STARTING_POINT_FORM = /\A\([^()]+\)\s+ex\s/
 
   # The author and year of a citation written elsewhere, given as its parts
   # (e.g. by Vendor::Biodiversity.authorship_parts), as the code cites the
@@ -70,9 +73,9 @@ module Utilities::Nomenclature::AuthorCitation
   #   citation when it has no parenthetical
   # @param year [Integer, nil] its year
   # @param tail [Hash, nil] what follows the citation, { connective:
-  #   String, authorship: parts like these, or nil }, e.g. for "ex Gomont
-  #   1892" { connective: 'ex', authorship: { ..., author: 'Gomont', year:
-  #   1892 } }
+  #   String or nil, authorship: parts like these, or nil }, e.g. for "ex
+  #   Gomont 1892" { connective: 'ex', authorship: { ..., author: 'Gomont',
+  #   year: 1892 } }
   # @param current_combination_year [Integer, nil] the year of the name as
   #   currently combined, given apart from the citation. Only used when the
   #   name is in its original combination and the citation has no year.
@@ -106,7 +109,9 @@ module Utilities::Nomenclature::AuthorCitation
   # part of the author citation (Art. 46.1 Ex. 1: "Rosa L. (Sp. Pl.: 491.
   # 1753)", the year is in the bibliographic reference).
   # @param nomenclatural_code [Symbol] :iczn
-  # @param author [String, nil] e.g. a Protonym's author_string
+  # @param author [String, nil] e.g. a Protonym's author_string, not in its
+  #   recombination form: one stored that way, e.g. "(Linnaeus)", goes
+  #   through .original_author_year first
   # @param year [Integer, nil]
   # @param recombination [Boolean] whether the name is a species-group
   #   name combined with a genus other than its original one. Nomenclaturally
@@ -126,9 +131,6 @@ module Utilities::Nomenclature::AuthorCitation
         "#{nomenclatural_code.inspect}"
     end
 
-    if !author.nil? && recombination_form?(author)
-      author = original_author_year(nomenclatural_code, author)
-    end
     citation = [author, year].compact.join(', ')
     citation = self.recombination(:iczn, citation) if recombination
 
@@ -211,7 +213,7 @@ module Utilities::Nomenclature::AuthorCitation
   # @param original_author [String, nil] the author(s) of the original
   #   name, e.g. "Chatton", optionally with its year, e.g. "Chatton, 1925"
   # @param combination_author [String, nil] the author(s) of the current
-  #   combination or rank, e.g. "Whittaker & Margulis"
+  #   combination or rank, e.g. "Whittaker & Margulis"; none when blank
   # @return [String, nil] original_author as-is when it's nil or empty
   def self.recombination(
     nomenclatural_code, original_author, combination_author = nil
@@ -245,7 +247,8 @@ module Utilities::Nomenclature::AuthorCitation
         # (Baker, 1899) -> Baker, 1899
         # Not with anything after them, like this:
         # (Baker, 1899) non Gillette, 1898
-        citation[/\A\((.*)\)\z/, 1]
+        # (Baker, 1899) non (Gillette)
+        citation[1...-1] if wholly_parenthesized?(citation)
       when *CITES_COMBINATION_AUTHOR
         # A leading parenthetical, like this:
         # (Seub.) Lowden -> Seub.
@@ -253,7 +256,8 @@ module Utilities::Nomenclature::AuthorCitation
         # Not a parenthetical elsewhere, like this:
         # auct. non (L.) Benth.
         # Retz. (fruit)
-        citation[/\A\(([^()]+)\)/, 1]
+        # (C. Agardh) ex Gomont, an original combination
+        citation[/\A\(([^()]+)\)/, 1] if recombination_form?(citation)
       end
 
     original || citation
@@ -261,16 +265,33 @@ module Utilities::Nomenclature::AuthorCitation
 
   # Whether verbatim_author has a form that `recombination` could have written
   # for the code: for the ICZN (and no code) either wholly in parentheses
-  # or with none at all, "(Chatton)" or "Chatton"; for codes that cite
-  # the combination author after the parentheses, anything.
+  # or with none at all, "(Chatton)" or "Chatton"; for the ICNP and ICVCN
+  # an optional leading parenthetical and then no parentheses, "(Migula)
+  # Castellani & Chalmers". The ICN allows anything: until TaxonWorks
+  # records a basionym's author apart from the name's, ICN verbatim_author
+  # carries other parentheticals, e.g. "Retz. (fruit)", "auct. non (L.)
+  # Benth.".
   # @param verbatim_author [String]
   # @param nomenclatural_code [Symbol, nil]
   # @return [Boolean]
   def self.well_formed?(verbatim_author, nomenclatural_code:)
-    return true if CITES_COMBINATION_AUTHOR.include?(nomenclatural_code)
-
-    verbatim_author.match?(/\A\([^()]+\)\z|\A[^()]+\z/)
+    case nomenclatural_code
+    when :icn
+      true
+    when *CITES_COMBINATION_AUTHOR
+      verbatim_author.match?(/\A(\([^()]+\)\s*)?[^()]*\z/)
+    else
+      verbatim_author.match?(/\A\([^()]+\)\z|\A[^()]+\z/)
+    end
   end
+
+  # Whether citation's leading parenthesis closes at its last character.
+  def self.wholly_parenthesized?(citation)
+    citation.start_with?('(') &&
+      ::Utilities::Strings.closing_paren_index(citation) ==
+        citation.length - 1
+  end
+  private_class_method :wholly_parenthesized?
 
   # ICN Art. 46.7: "(C. Agardh) ex Gomont", a pre-starting-point author in
   # parentheses followed by "ex" and the author of the name, nothing between
@@ -280,17 +301,19 @@ module Utilities::Nomenclature::AuthorCitation
     nomenclatural_code, parenthetical_author, author, tail,
     current_combination_year
   )
-    ex = tail[:authorship]
+    ex_authorship = tail[:authorship]
     if nomenclatural_code != :icn || tail[:connective] != 'ex' ||
         parenthetical_author.nil? || parenthetical_author.empty? ||
-        !(author.nil? || author.empty?) || ex.nil? || ex[:author].nil? ||
-        !ex[:parenthetical_author].nil? || !ex[:tail].nil?
+        !(author.nil? || author.empty?) || ex_authorship.nil? ||
+        ex_authorship[:author].nil? ||
+        !ex_authorship[:parenthetical_author].nil? ||
+        !ex_authorship[:tail].nil?
       return nil
     end
 
     [
-      ex(:icn, "(#{parenthetical_author})", ex[:author]),
-      ex[:year] || current_combination_year
+      ex(:icn, "(#{parenthetical_author})", ex_authorship[:author]),
+      ex_authorship[:year] || current_combination_year
     ]
   end
   private_class_method :pre_starting_point
@@ -308,8 +331,9 @@ module Utilities::Nomenclature::AuthorCitation
   # A name transferred to another genus or species, or changed in rank, is
   # cited with the original name's author in parentheses followed by the
   # author who made the change (ICN Art. 49.1; ICNP Rules 34b, 34c), e.g.
-  # "(Drude) Thorne ex Royen".
+  # "(Drude) Thorne ex Royen". A blank combination_author is none.
   def self.basionym_and_combination_author(original_author, combination_author)
+    combination_author = nil if combination_author.to_s.strip.empty?
     ["(#{original_author})", combination_author].compact.join(' ')
   end
   private_class_method :basionym_and_combination_author

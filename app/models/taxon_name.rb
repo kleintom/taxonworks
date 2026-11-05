@@ -1473,11 +1473,18 @@ class TaxonName < ApplicationRecord
       y = [taxon.try(:year_integer)]
     end
 
+    # An author stored in its recombination form, e.g. "(Linnaeus)", unwrapped.
+    # A malformed one, e.g. "(Selys", is left as it is.
+    author = a[0]
+    if !author.nil?
+      author = Utilities::Nomenclature::AuthorCitation
+        .original_author_year(:iczn, author)
+    end
+
     # Only species-group names are cited as recombinations (Art. 51.3).
     recombination = false
     if SPECIES_RANK_NAMES_ICZN.include?(taxon.rank_string)
-      recombination = !a[0].nil? &&
-        Utilities::Nomenclature::AuthorCitation.recombination_form?(a[0])
+      recombination = author != a[0]
       if !recombination # try harder
         og = taxon.original_genus
         if self.type == 'Combination'
@@ -1500,7 +1507,7 @@ class TaxonName < ApplicationRecord
     end
 
     ay = Utilities::Nomenclature::AuthorCitation.citation(
-      :iczn, a[0], y[0], recombination:, priority_year:
+      :iczn, author, y[0], recombination:, priority_year:
     )
 
     obj = misapplication.empty? ? nil : misapplication.first.object_taxon_name

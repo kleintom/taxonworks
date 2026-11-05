@@ -293,6 +293,16 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
       expect(author).not_to match(/\d/)
     end
 
+    specify 'ignores a current_combination_year that isn\'t a year' do
+      ['n.d.', '0', 0].each do |current_combination_year|
+        expect(
+          Protonym.verbatim_author_and_year(
+            'Linnaeus', current_combination_year:
+          )
+        ).to eq(['Linnaeus', nil])
+      end
+    end
+
     specify 'returns authorship gnparser finds no authors in as-is' do
       expect(
         Protonym.verbatim_author_and_year(

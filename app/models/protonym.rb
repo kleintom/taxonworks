@@ -200,7 +200,10 @@ class Protonym < TaxonName
   )
     return [nil, nil] if authorship.blank?
 
-    current_combination_year = current_combination_year.presence&.to_i
+    # Anything that isn't a year, e.g. "n.d.", is no year (not 0).
+    current_combination_year = current_combination_year.to_i
+    current_combination_year = nil if current_combination_year <= 0
+
     parts = ::Vendor::Biodiversity.authorship_parts(authorship)
     if parts.nil?
       # Best effort.

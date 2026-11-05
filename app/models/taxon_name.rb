@@ -1499,7 +1499,7 @@ class TaxonName < ApplicationRecord
       priority_year = cached_nomenclature_date&.year
     end
 
-    ay = Utilities::Nomenclature::AuthorCitation.author_year(
+    ay = Utilities::Nomenclature::AuthorCitation.citation(
       :iczn, a[0], y[0], recombination:, priority_year:
     )
 

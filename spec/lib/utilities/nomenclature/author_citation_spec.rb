@@ -5,7 +5,7 @@ describe Utilities::Nomenclature::AuthorCitation do
 
   # Parts of the Catalogue of Life citations (dataset 3LR, 2026-11) for the
   # name noted.
-  context '.author_and_year' do
+  context '.from_parts' do
     def parts(parenthetical_author: nil, parenthetical_year: nil,
       author: nil, year: nil)
       { parenthetical_author:, parenthetical_year:, author:, year: }
@@ -15,7 +15,7 @@ describe Utilities::Nomenclature::AuthorCitation do
       specify 'is the author as written, whatever the code' do
         %i{iczn icn icnp icvcn}.each do |code|
           expect(
-            v.author_and_year(
+            v.from_parts(
               code, **parts(author: 'Dejean ex Boisduval', year: 1829)
             )
           ).to eq(['Dejean ex Boisduval', 1829])
@@ -24,7 +24,7 @@ describe Utilities::Nomenclature::AuthorCitation do
 
       specify 'takes current_combination_year when the citation has none' do
         expect(
-          v.author_and_year(
+          v.from_parts(
             :iczn, **parts(author: 'Linnaeus'), current_combination_year: 1758
           )
         ).to eq(['Linnaeus', 1758])
@@ -32,7 +32,7 @@ describe Utilities::Nomenclature::AuthorCitation do
 
       specify 'prefers the citation\'s own year' do
         expect(
-          v.author_and_year(
+          v.from_parts(
             :iczn, **parts(author: 'Linnaeus', year: 1758),
             current_combination_year: 1900
           )
@@ -50,15 +50,15 @@ describe Utilities::Nomenclature::AuthorCitation do
       }
 
       specify 'is cited by the code, with the original name\'s year' do
-        expect(v.author_and_year(:iczn, **chatton))
+        expect(v.from_parts(:iczn, **chatton))
           .to eq(['(Chatton)', 1925])
-        expect(v.author_and_year(:icn, **chatton))
+        expect(v.from_parts(:icn, **chatton))
           .to eq(['(Chatton) Whittaker & Margulis', 1925])
       end
 
       specify 'never takes current_combination_year' do
         expect(
-          v.author_and_year(
+          v.from_parts(
             :icn,
             **parts(parenthetical_author: 'Moench', author: 'Voss'),
             current_combination_year: 1890
@@ -68,54 +68,54 @@ describe Utilities::Nomenclature::AuthorCitation do
     end
 
     specify 'no author is nil' do
-      expect(v.author_and_year(:iczn, **parts)).to eq([nil, nil])
+      expect(v.from_parts(:iczn, **parts)).to eq([nil, nil])
     end
   end
 
-  context '.author_year' do
+  context '.citation' do
     context ':iczn' do
       specify 'joins author and year' do
-        expect(v.author_year(:iczn, 'Linnaeus', 1758, recombination: false))
+        expect(v.citation(:iczn, 'Linnaeus', 1758, recombination: false))
           .to eq('Linnaeus, 1758')
       end
 
       specify 'wraps both for a recombination' do
-        expect(v.author_year(:iczn, 'Linnaeus', 1758, recombination: true))
+        expect(v.citation(:iczn, 'Linnaeus', 1758, recombination: true))
           .to eq('(Linnaeus, 1758)')
       end
 
       specify 'unwraps a stored recombination form before adding the year' do
         expect(
-          v.author_year(:iczn, '(Linnaeus)', 1758, recombination: true)
+          v.citation(:iczn, '(Linnaeus)', 1758, recombination: true)
         ).to eq('(Linnaeus, 1758)')
       end
 
       # e.g. a genus-group name: parentheses are for species-group names.
       specify 'drops a stored recombination form when it isn\'t one' do
         expect(
-          v.author_year(:iczn, '(Linnaeus)', 1758, recombination: false)
+          v.citation(:iczn, '(Linnaeus)', 1758, recombination: false)
         ).to eq('Linnaeus, 1758')
       end
 
       specify 'with no year is the author' do
-        expect(v.author_year(:iczn, 'Linnaeus', nil, recombination: true))
+        expect(v.citation(:iczn, 'Linnaeus', nil, recombination: true))
           .to eq('(Linnaeus)')
       end
 
       specify 'with no author is the year' do
-        expect(v.author_year(:iczn, nil, 1758, recombination: false))
+        expect(v.citation(:iczn, nil, 1758, recombination: false))
           .to eq('1758')
       end
 
       specify 'with neither is empty' do
-        expect(v.author_year(:iczn, nil, nil, recombination: true)).to eq('')
+        expect(v.citation(:iczn, nil, nil, recombination: true)).to eq('')
       end
 
       # THAUMALEIDAE, Art. 40.2.1, Rec. 40A.
       context 'with a priority_year' do
         specify 'cites it after the year' do
           expect(
-            v.author_year(
+            v.citation(
               :iczn, 'Bezzi', 1913, recombination: false, priority_year: 1847
             )
           ).to eq('Bezzi, 1913 [1847]')
@@ -123,7 +123,7 @@ describe Utilities::Nomenclature::AuthorCitation do
 
         specify 'not when it\'s the year' do
           expect(
-            v.author_year(
+            v.citation(
               :iczn, 'Bezzi', 1913, recombination: false, priority_year: 1913
             )
           ).to eq('Bezzi, 1913')
@@ -131,7 +131,7 @@ describe Utilities::Nomenclature::AuthorCitation do
 
         specify 'cites it with no year' do
           expect(
-            v.author_year(
+            v.citation(
               :iczn, 'Bezzi', nil, recombination: false, priority_year: 1847
             )
           ).to eq('Bezzi [1847]')
@@ -141,7 +141,7 @@ describe Utilities::Nomenclature::AuthorCitation do
 
     specify 'is only written for :iczn' do
       expect {
-        v.author_year(:icn, 'Moench', 1794, recombination: false)
+        v.citation(:icn, 'Moench', 1794, recombination: false)
       }.to raise_error(ArgumentError)
     end
   end

@@ -191,7 +191,7 @@ class Protonym < TaxonName
   # @param authorship [String, nil]
   # @param current_combination_year [String, Integer, nil] the year of the
   #   name as currently combined, given apart from the citation; see
-  #   Utilities::Nomenclature::AuthorCitation.author_and_year
+  #   Utilities::Nomenclature::AuthorCitation.from_parts
   # @param nomenclatural_code [Symbol, nil] the code of the rank the
   #   Protonym is created at: :iczn, :icn, :icnp, :icvcn
   # @return [Array(String, Integer), Array(nil, nil)]
@@ -213,7 +213,7 @@ class Protonym < TaxonName
       return [authorship, recombination ? nil : current_combination_year]
     end
 
-    ::Utilities::Nomenclature::AuthorCitation.author_and_year(
+    ::Utilities::Nomenclature::AuthorCitation.from_parts(
       nomenclatural_code, **parts, current_combination_year:
     )
   end

@@ -1,9 +1,10 @@
 # Author citations (the author and year after a name) as each
 # nomenclatural code writes them, in particular for a name that is no
 # longer in its original combination (or, for the ICN and ICNP, rank):
-# reading one written elsewhere (author_and_year, recombination_form?),
-# writing one (author_year, recombination), reading one back
-# (original_author_year), and checking a stored author (well_formed?).
+# reading one written elsewhere (.from_parts, .recombination_form?),
+# writing one (.citation, .recombination, .ex, .misapplication), reading
+# one back (.original_author_year), and checking a stored author
+# (.well_formed?).
 module Utilities::Nomenclature::AuthorCitation
 
   # Codes whose recombinations are cited as the original author in
@@ -28,7 +29,7 @@ module Utilities::Nomenclature::AuthorCitation
   # combination by the reviver, whose year it takes (Rule 28a): author
   # "Palleroni and Holmes", year 1981, not a recombination of Burkholder's
   # 1950 name. For :icnp a parenthetical starting "ex" should be read that
-  # way here and in author_and_year. gnparser can't parse these yet, so
+  # way here and in .from_parts. gnparser can't parse these yet, so
   # today they fall back to the raw string (with its years), which
   # Protonym's verbatim_author validation rejects (see the xspec 'an ICNP
   # revived name is an original combination by the reviver' on
@@ -69,7 +70,7 @@ module Utilities::Nomenclature::AuthorCitation
   #   name is in its original combination and the citation has no year.
   #   Never used for a recombination: that's not the original name's year.
   # @return [Array(String, Integer), Array(nil, nil)]
-  def self.author_and_year(
+  def self.from_parts(
     nomenclatural_code, parenthetical_author:, parenthetical_year:, author:,
     year:, current_combination_year: nil
   )
@@ -108,25 +109,25 @@ module Utilities::Nomenclature::AuthorCitation
   #   encloses it in parentheses, "THAUMALEIDAE Bezzi, 1913 (1847)";
   #   TaxonWorks uses square brackets, "Bezzi, 1913 [1847]".
   # @return [String] empty when there's neither author nor year
-  def self.author_year(
+  def self.citation(
     nomenclatural_code, author, year, recombination:, priority_year: nil
   )
     if nomenclatural_code != :iczn
-      raise ArgumentError, 'author_year is only written for :iczn, not ' \
+      raise ArgumentError, 'citation is only written for :iczn, not ' \
         "#{nomenclatural_code.inspect}"
     end
 
     if !author.nil? && recombination_form?(author)
       author = original_author_year(nomenclatural_code, author)
     end
-    author_year = [author, year].compact.join(', ')
-    author_year = self.recombination(:iczn, author_year) if recombination
+    citation = [author, year].compact.join(', ')
+    citation = self.recombination(:iczn, citation) if recombination
 
     if !priority_year.nil? && priority_year != year
-      author_year += " [#{priority_year}]"
+      citation += " [#{priority_year}]"
     end
 
-    author_year
+    citation
   end
 
   # The author of a name ascribed by its publishing author to someone else,
@@ -162,7 +163,7 @@ module Utilities::Nomenclature::AuthorCitation
 
   # The citation of a misapplied name, the use of a name by a later author
   # for a taxon other than the one it was established for: citation, the
-  # later author's (as built by author_year or recombination), followed by
+  # later author's (as built by .citation or .recombination), followed by
   # " non " and the author (and year) of the name as established, e.g.
   # "Melichar, 1905 non Walker, 1858".
   #
@@ -180,7 +181,7 @@ module Utilities::Nomenclature::AuthorCitation
   # @param citation [String, nil] the misapplied name's
   # @param author [String, nil] the author of the name as established
   # @param year [Integer, nil] its year; TaxonWorks cites one only for the
-  #   ICZN (see author_year)
+  #   ICZN (see .citation)
   # @return [String, nil] citation as-is when there's no author
   def self.misapplication(nomenclatural_code, citation, author, year = nil)
     if !%i{iczn icn}.include?(nomenclatural_code)

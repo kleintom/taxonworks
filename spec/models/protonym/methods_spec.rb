@@ -293,18 +293,24 @@ describe Protonym, type: :model, group: [:nomenclature, :protonym] do
       expect(author).not_to match(/\d/)
     end
 
-    # Hydrocoleum glutinosum, ICN Art. 46.7 Ex. 41 (the years added). See
-    # the TODO on Utilities::Nomenclature::AuthorCitation.recombination_form?.
-    # Whether verbatim_author keeps the "(C. Agardh) ex" credit is undecided,
-    # so only the publisher ending it is checked.
-    xspecify 'an ICN name credited to a pre-starting-point author is an ' \
+    # Hydrocoleum glutinosum, ICN Art. 46.7 Ex. 41 (the years added).
+    specify 'an ICN name credited to a pre-starting-point author is an ' \
       'original combination by its publisher' do
-      author, year = Protonym.verbatim_author_and_year(
-        '(C. Agardh 1824) ex Gomont 1892', nomenclatural_code: :icn
-      )
-      expect(year).to eq(1892)
-      expect(author).to end_with('Gomont')
-      expect(author).not_to match(/\d/)
+      expect(
+        Protonym.verbatim_author_and_year(
+          '(C. Agardh 1824) ex Gomont 1892', nomenclatural_code: :icn
+        )
+      ).to eq(['(C. Agardh) ex Gomont', 1892])
+    end
+
+    # Aphrophora spumaria, a misapplication (ICZN Art. 51.2.1): the
+    # misapplier isn't the name's author.
+    specify 'returns a citation followed by a misapplication as-is' do
+      expect(
+        Protonym.verbatim_author_and_year(
+          '(Curtis, 1829) non Linnaeus, 1758', nomenclatural_code: :iczn
+        )
+      ).to eq(['(Curtis, 1829) non Linnaeus, 1758', nil])
     end
 
     specify 'ignores a current_combination_year that isn\'t a year' do

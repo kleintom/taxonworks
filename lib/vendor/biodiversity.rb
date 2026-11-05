@@ -18,6 +18,14 @@ module Vendor
     # gnparser word types that are a publication year.
     YEAR_WORD_TYPES = %w{YEAR APPROXIMATE_YEAR}.freeze
 
+    # Words that join a citation to another author after it, which gnparser
+    # leaves unparsed: "ex" for a pre-starting-point author (ICN Art. 46.7,
+    # "(C. Agardh) ex Gomont"), "non" and "nec" for a homonym (ICN Rec.
+    # 50C.1, "Brongn. 1827, non Rchb. 1824 nec F. Muell. 1882") or a
+    # misapplication, "sensu" for a subsequent user (ICZN Art. 51.2.1,
+    # "Linnaeus sensu Latreille").
+    AUTHORSHIP_CONNECTIVES = %w{ex non nec sensu}.freeze
+
     # Finds the parts of an authorship citation with gnparser, as they're
     # written.
     #
@@ -25,9 +33,14 @@ module Vendor
     # cleaned-up copy of the input: entities decoded, tags removed, ...) at
     # gnparser's word positions, rather than rebuilt from gnparser's author
     # lists (originalAuth etc.). Slicing gnparser's own text means we don't
-    # have to repeat its cleanup. Years are left out of it. Whatever gnparser
-    # leaves unparsed at the end (e.g. "(Approved Lists 1980)" on ICNP names,
-    # Rule 33b Note 3, or "nom. cons.") isn't kept.
+    # have to repeat its cleanup. Years are left out of it.
+    #
+    # What gnparser leaves unparsed at the end is the tail. One that starts
+    # with one of AUTHORSHIP_CONNECTIVES, e.g. "ex Gomont 1892" or "non
+    # Boheman, 1852", is given as that word (connective) and the parts of
+    # what follows it (authorship, nil if gnparser finds none). Any other,
+    # e.g. "(Approved Lists 1980)" on ICNP names (Rule 33b Note 3) or "nom.
+    # cons.", isn't kept.
     #
     # Why not the author lists: gnparser normalizes them, and normalized
     # authors aren't what was written:
@@ -76,7 +89,9 @@ module Vendor
     #     parenthetical_author: String or nil,
     #     parenthetical_year: Integer or nil,
     #     author: String or nil,
-    #     year: Integer or nil
+    #     year: Integer or nil,
+    #     tail: nil or { connective: String, authorship: Hash or nil }, the
+    #       Hash being these parts again
     #   }; nil when authorship is blank or gnparser finds no authorship in it.
     def self.authorship_parts(authorship)
       return nil if authorship.blank?
@@ -97,12 +112,15 @@ module Vendor
       words = authorship_words(parsed, text)
       return nil if words.nil?
 
+      tail = authorship_tail(parsed[:tail])
+
       if !text.start_with?('(')
         return {
           parenthetical_author: nil,
           parenthetical_year: nil,
           author: author_text(text, words, 0, text.length),
-          year: group_year(original)
+          year: group_year(original),
+          tail:
         }
       end
 
@@ -113,9 +131,23 @@ module Vendor
         parenthetical_author: author_text(text, words, 0, close_paren),
         parenthetical_year: group_year(original),
         author: author_text(text, words, close_paren, text.length),
-        year: group_year(parsed.dig(:authorship, :combinationAuth))
+        year: group_year(parsed.dig(:authorship, :combinationAuth)),
+        tail:
       }
     end
+
+    # gnparser's unparsed tail, when it's one of AUTHORSHIP_CONNECTIVES
+    # followed by more authorship, e.g. " ex Gomont 1892" -> { connective:
+    # 'ex', authorship: { ..., author: 'Gomont', year: 1892, ... } }.
+    # @param tail [String, nil]
+    # @return [Hash, nil]
+    def self.authorship_tail(tail)
+      connective, rest = tail.to_s.strip.split(/\s+/, 2)
+      return nil if rest.nil? || !AUTHORSHIP_CONNECTIVES.include?(connective)
+
+      { connective:, authorship: authorship_parts(rest) }
+    end
+    private_class_method :authorship_tail
 
     # The year of one of gnparser's author groups: its own, or its in- or
     # ex-authors', the ones who published the name - "Leach in Brewster,

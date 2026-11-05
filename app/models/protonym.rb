@@ -205,17 +205,18 @@ class Protonym < TaxonName
     current_combination_year = nil if current_combination_year <= 0
 
     parts = ::Vendor::Biodiversity.authorship_parts(authorship)
-    if parts.nil?
-      # Best effort.
-      authorship = ::CGI.unescapeHTML(authorship).strip
-      recombination = ::Utilities::Nomenclature::AuthorCitation
-        .recombination_form?(authorship)
-      return [authorship, recombination ? nil : current_combination_year]
+    if !parts.nil?
+      author_and_year = ::Utilities::Nomenclature::AuthorCitation.from_parts(
+        nomenclatural_code, **parts, current_combination_year:
+      )
+      return author_and_year if !author_and_year.nil?
     end
 
-    ::Utilities::Nomenclature::AuthorCitation.from_parts(
-      nomenclatural_code, **parts, current_combination_year:
-    )
+    # Best effort.
+    authorship = ::CGI.unescapeHTML(authorship).strip
+    recombination = ::Utilities::Nomenclature::AuthorCitation
+      .recombination_form?(authorship)
+    [authorship, recombination ? nil : current_combination_year]
   end
 
   # TODO: feels like TaxonNames Filter f(n)

@@ -492,7 +492,7 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
     specify 'splits "Linnaeus, 1758" into author and year' do
       expect(parts('Linnaeus, 1758')).to eq(
         parenthetical_author: nil, parenthetical_year: nil,
-        author: 'Linnaeus', year: 1758
+        author: 'Linnaeus', year: 1758, tail: nil
       )
     end
 
@@ -611,10 +611,64 @@ describe ::Vendor::Biodiversity, type: :model, group: [:nomenclature] do
       # Escherichia coli. ICNP Rule 33b Note 3
       specify 'drops the Approved Lists annotation' do
         expect(
-          parts_a(
+          parts(
             '(Migula, 1895) Castellani & Chalmers 1919 (Approved Lists 1980)'
           )
-        ).to eq(['Migula', 1895, 'Castellani & Chalmers', 1919])
+        ).to eq(
+          parenthetical_author: 'Migula', parenthetical_year: 1895,
+          author: 'Castellani & Chalmers', year: 1919, tail: nil
+        )
+      end
+    end
+
+    # What gnparser leaves unparsed after the authorship.
+    context 'a tail' do
+      # Hydrocoleum glutinosum, ICN Art. 46.7 Ex. 41 (the years added).
+      specify 'after a parenthetical is a connective and its authorship' do
+        expect(parts('(C. Agardh 1824) ex Gomont 1892')).to eq(
+          parenthetical_author: 'C. Agardh', parenthetical_year: 1824,
+          author: nil, year: nil,
+          tail: {
+            connective: 'ex',
+            authorship: {
+              parenthetical_author: nil, parenthetical_year: nil,
+              author: 'Gomont', year: 1892, tail: nil
+            }
+          }
+        )
+      end
+
+      # Bocchar leucaspis, a misapplication.
+      specify 'after an author is a connective and its authorship' do
+        tail = parts('Melichar, 1905 non Walker, 1858')[:tail]
+        expect(tail[:connective]).to eq('non')
+        expect(tail[:authorship].values_at(:author, :year))
+          .to eq(['Walker', 1858])
+      end
+
+      # Bartlingia, ICN Rec. 50C.1 Ex. 3.
+      specify 'can have its own tail' do
+        tail = parts('Brongn. 1827 non Rchb. 1824 nec F. Muell. 1882')[:tail]
+        expect(tail.dig(:authorship, :author)).to eq('Rchb.')
+        expect(tail.dig(:authorship, :tail, :connective)).to eq('nec')
+        expect(tail.dig(:authorship, :tail, :authorship, :author))
+          .to eq('F. Muell.')
+      end
+
+      specify 'whose authorship gnparser can\'t find has none' do
+        expect(parts('L. sensu lato')[:tail])
+          .to eq(connective: 'sensu', authorship: nil)
+      end
+
+      # Lindera, ICN Rec. 50E.1 Ex. 2.
+      specify 'not starting with a connective is dropped' do
+        expect(parts('Thunb. nom. cons.')[:tail]).to be_nil
+      end
+
+      # Garbled real data, "J.Jung".
+      specify 'starting with another lowercase word is dropped' do
+        expect(parts('(Franch. & Sav.) J.Jun g & H.K. Choi')[:tail])
+          .to be_nil
       end
     end
 

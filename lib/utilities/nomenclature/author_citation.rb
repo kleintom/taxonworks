@@ -40,13 +40,9 @@ module Utilities::Nomenclature::AuthorCitation
   # Likewise the ICN (Art. 46.7) lets a pre-starting-point author be cited
   # in a leading parenthetical followed by "ex", e.g. Hydrocoleum glutinosum
   # "(C. Agardh) ex Gomont": an original combination by Gomont, not a
-  # recombination (a pre-starting-point name isn't validly published). For
-  # :icn a parenthetical followed by "ex" should be read that way. Today
-  # gnparser drops the "ex Gomont", so the name is stored as "(C. Agardh)",
-  # losing its author, with Agardh's year if the parenthetical has one (see
-  # the xspec 'an ICN name credited to a pre-starting-point author is an
-  # original combination by its publisher' on
-  # Protonym.verbatim_author_and_year).
+  # recombination (a pre-starting-point name isn't validly published).
+  # .from_parts reads it that way, but once stored, this reads it as a
+  # recombination: for :icn a parenthetical followed by "ex" shouldn't be.
   # @param citation [String]
   # @return [Boolean]
   def self.recombination_form?(citation)
@@ -58,6 +54,14 @@ module Utilities::Nomenclature::AuthorCitation
   # name. By the rule in recombination_form?, a parenthetical author is the
   # original name's author, and what follows it the current combination's;
   # the year is always the original name's.
+  #
+  # Something after the citation, the tail, is read only for ICN Art. 46.7,
+  # a pre-starting-point author in parentheses followed by "ex" and the
+  # name's author: "(C. Agardh) ex Gomont 1892" is an original combination
+  # by Gomont, "(C. Agardh) ex Gomont", 1892. Any other says the citation
+  # isn't just a name's author, e.g. a misapplication's "Melichar, 1905 non
+  # Walker, 1858" (ICZN Art. 51.2.1) or a later homonym's "Thomas non
+  # Borkh. 1800" (ICN Rec. 50C.1), and isn't read.
   # @param nomenclatural_code [Symbol, nil] :iczn, :icn, :icnp, :icvcn
   # @param parenthetical_author [String, nil] the citation's leading
   #   parenthetical
@@ -65,15 +69,27 @@ module Utilities::Nomenclature::AuthorCitation
   # @param author [String, nil] the rest of the citation, or the whole
   #   citation when it has no parenthetical
   # @param year [Integer, nil] its year
+  # @param tail [Hash, nil] what follows the citation, { connective:
+  #   String, authorship: parts like these, or nil }, e.g. for "ex Gomont
+  #   1892" { connective: 'ex', authorship: { ..., author: 'Gomont', year:
+  #   1892 } }
   # @param current_combination_year [Integer, nil] the year of the name as
   #   currently combined, given apart from the citation. Only used when the
   #   name is in its original combination and the citation has no year.
   #   Never used for a recombination: that's not the original name's year.
-  # @return [Array(String, Integer), Array(nil, nil)]
+  # @return [Array(String, Integer), Array(nil, nil), nil] nil when the
+  #   citation isn't read
   def self.from_parts(
     nomenclatural_code, parenthetical_author:, parenthetical_year:, author:,
-    year:, current_combination_year: nil
+    year:, tail: nil, current_combination_year: nil
   )
+    if !tail.nil?
+      return pre_starting_point(
+        nomenclatural_code, parenthetical_author, author, tail,
+        current_combination_year
+      )
+    end
+
     if parenthetical_author.nil? || parenthetical_author.empty?
       return [author, year || current_combination_year]
     end
@@ -243,7 +259,7 @@ module Utilities::Nomenclature::AuthorCitation
     original || citation
   end
 
-  # Whether verbatim_author has a form recombination could have written
+  # Whether verbatim_author has a form that `recombination` could have written
   # for the code: for the ICZN (and no code) either wholly in parentheses
   # or with none at all, "(Chatton)" or "Chatton"; for codes that cite
   # the combination author after the parentheses, anything.
@@ -255,6 +271,29 @@ module Utilities::Nomenclature::AuthorCitation
 
     verbatim_author.match?(/\A\([^()]+\)\z|\A[^()]+\z/)
   end
+
+  # ICN Art. 46.7: "(C. Agardh) ex Gomont", a pre-starting-point author in
+  # parentheses followed by "ex" and the author of the name, nothing between
+  # them, as the author and year of an original combination by that author.
+  # nil for any other tail.
+  def self.pre_starting_point(
+    nomenclatural_code, parenthetical_author, author, tail,
+    current_combination_year
+  )
+    ex = tail[:authorship]
+    if nomenclatural_code != :icn || tail[:connective] != 'ex' ||
+        parenthetical_author.nil? || parenthetical_author.empty? ||
+        !(author.nil? || author.empty?) || ex.nil? || ex[:author].nil? ||
+        !ex[:parenthetical_author].nil? || !ex[:tail].nil?
+      return nil
+    end
+
+    [
+      ex(:icn, "(#{parenthetical_author})", ex[:author]),
+      ex[:year] || current_combination_year
+    ]
+  end
+  private_class_method :pre_starting_point
 
   # A species-group name combined with a genus other than its original one
   # has its author (and year, if given) in parentheses (ICZN Art. 51.3),

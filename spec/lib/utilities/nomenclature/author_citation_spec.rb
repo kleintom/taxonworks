@@ -7,8 +7,12 @@ describe Utilities::Nomenclature::AuthorCitation do
   # name noted.
   context '.from_parts' do
     def parts(parenthetical_author: nil, parenthetical_year: nil,
-      author: nil, year: nil)
-      { parenthetical_author:, parenthetical_year:, author:, year: }
+      author: nil, year: nil, tail: nil)
+      { parenthetical_author:, parenthetical_year:, author:, year:, tail: }
+    end
+
+    def tail(connective, **authorship)
+      { connective:, authorship: authorship.empty? ? nil : parts(**authorship) }
     end
 
     context 'a name in its original combination' do
@@ -69,6 +73,78 @@ describe Utilities::Nomenclature::AuthorCitation do
 
     specify 'no author is nil' do
       expect(v.from_parts(:iczn, **parts)).to eq([nil, nil])
+    end
+
+    # Hydrocoleum glutinosum, ICN Art. 46.7 Ex. 41 (the years added).
+    context 'a pre-starting-point author' do
+      let(:agardh) {
+        parts(
+          parenthetical_author: 'C. Agardh', parenthetical_year: 1824,
+          tail: tail('ex', author: 'Gomont', year: 1892)
+        )
+      }
+
+      specify ':icn is an original combination by the "ex" author' do
+        expect(v.from_parts(:icn, **agardh))
+          .to eq(['(C. Agardh) ex Gomont', 1892])
+      end
+
+      specify ':icn takes current_combination_year when it has no year' do
+        expect(
+          v.from_parts(
+            :icn,
+            **parts(
+              parenthetical_author: 'C. Agardh',
+              tail: tail('ex', author: 'Gomont')
+            ),
+            current_combination_year: 1892
+          )
+        ).to eq(['(C. Agardh) ex Gomont', 1892])
+      end
+
+      specify 'isn\'t read for other codes' do
+        %i{iczn icnp icvcn}.each do |code|
+          expect(v.from_parts(code, **agardh)).to be_nil
+        end
+      end
+
+      specify 'isn\'t read with an author before the "ex"' do
+        expect(
+          v.from_parts(
+            :icn,
+            **parts(
+              parenthetical_author: 'C. Agardh', author: 'Kütz.',
+              tail: tail('ex', author: 'Gomont')
+            )
+          )
+        ).to be_nil
+      end
+    end
+
+    # Bocchar leucaspis, a misapplication; Ulmus racemosa, ICN Rec. 50C.1
+    # Ex. 1, a later homonym.
+    specify 'any other tail isn\'t read' do
+      expect(
+        v.from_parts(
+          :iczn,
+          **parts(
+            author: 'Melichar', year: 1905,
+            tail: tail('non', author: 'Walker', year: 1858)
+          )
+        )
+      ).to be_nil
+      expect(
+        v.from_parts(
+          :icn,
+          **parts(
+            author: 'Thomas', year: 1831,
+            tail: tail('non', author: 'Borkh.', year: 1800)
+          )
+        )
+      ).to be_nil
+      expect(
+        v.from_parts(:icn, **parts(author: 'L.', tail: tail('sensu')))
+      ).to be_nil
     end
   end
 

@@ -1451,7 +1451,7 @@ class TaxonName < ApplicationRecord
 
     if !misapplication.empty?
       ay = Utilities::Nomenclature::AuthorCitation.misapplication(
-        :icn, ay, m_obj.author_string
+        :icn, ay, m_obj.author_string, m_obj.year_integer
       )
     end
 

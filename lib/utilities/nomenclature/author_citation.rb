@@ -26,7 +26,7 @@ module Utilities::Nomenclature::AuthorCitation
   # TODO: ICNP revived names (Rule 33c Note 2) credit the original author
   # with "ex" in a leading parenthetical, e.g. Pseudomonas cepacia "(ex
   # Burkholder 1950) Palleroni and Holmes 1981". That's an original
-  # combination by the reviver, whose year it takes (Rule 28a): author
+  # combination by the reviver, whose year it takes (ICNP Rule 28a): author
   # "Palleroni and Holmes", year 1981, not a recombination of Burkholder's
   # 1950 name. For :icnp a parenthetical starting "ex" should be read that
   # way here and in .from_parts. gnparser can't parse these yet, so
@@ -84,13 +84,6 @@ module Utilities::Nomenclature::AuthorCitation
     ]
   end
 
-  # The author and year as the code cites them, e.g. for the ICZN
-  # "Linnaeus, 1758", or "(Linnaeus, 1758)" for a recombination (Art.
-  # 51.3: the year goes inside the parentheses). An author stored in
-  # recombination form, "(Linnaeus)", is unwrapped first, and re-wrapped
-  # only if recombination is true. Whether the name is one is the caller's
-  # to decide.
-  #
   # Only written for the ICZN, the one code whose names TaxonWorks cites
   # with a year (see TaxonName#icn_author_and_year). The codes differ on
   # years: the ICNP cites them (Rule 34b, Note 1), the ICN doesn't make them
@@ -101,12 +94,12 @@ module Utilities::Nomenclature::AuthorCitation
   # @param year [Integer, nil]
   # @param recombination [Boolean] whether the name is a species-group
   #   name combined with a genus other than its original one. Nomenclaturally
-  #   only a species-group name can be (Art. 51.3), so pass true only in that
-  #   case.
+  #   only a species-group name can be (ICZN Art. 51.3), so pass true only in
+  #   that case.
   # @param priority_year [Integer, nil] for a family-group name maintained
-  #   under Art. 40.2.1, the date of priority it takes from the name it
-  #   replaced; cited after the name's own year when it differs. Rec. 40A
-  #   encloses it in parentheses, "THAUMALEIDAE Bezzi, 1913 (1847)";
+  #   under ICZN Art. 40.2.1, the date of priority it takes from the name it
+  #   replaced; cited after the name's own year when it differs. ICZN Rec.
+  #   40A encloses it in parentheses, "THAUMALEIDAE Bezzi, 1913 (1847)";
   #   TaxonWorks uses square brackets, "Bezzi, 1913 [1847]".
   # @return [String] empty when there's neither author nor year
   def self.citation(
@@ -180,15 +173,18 @@ module Utilities::Nomenclature::AuthorCitation
   # @param nomenclatural_code [Symbol] :iczn, :icn
   # @param citation [String, nil] the misapplied name's
   # @param author [String, nil] the author of the name as established
-  # @param year [Integer, nil] its year; TaxonWorks cites one only for the
-  #   ICZN (see .citation)
+  # @param year [Integer, nil] its year, cited only for the ICZN. ICN Rec.
+  #   50D.1 cites the original author without one, "auct. non Vahl", and
+  #   TaxonWorks cites the ICN's names without one (see .citation).
   # @return [String, nil] citation as-is when there's no author
-  def self.misapplication(nomenclatural_code, citation, author, year = nil)
+  def self.misapplication(nomenclatural_code, citation, author, year)
     if !%i{iczn icn}.include?(nomenclatural_code)
       raise ArgumentError, 'misapplication is only written for :iczn and ' \
         ":icn, not #{nomenclatural_code.inspect}"
     end
     return citation if author.nil? || author.strip.empty?
+
+    year = nil if nomenclatural_code != :iczn
 
     "#{citation} non #{[author, year].compact.join(', ')}"
   end

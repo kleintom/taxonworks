@@ -176,7 +176,7 @@ describe Utilities::Nomenclature::AuthorCitation do
     end
 
     specify ':icn cites the name as established without a year' do
-      expect(v.misapplication(:icn, 'De Wild.', 'Vahl'))
+      expect(v.misapplication(:icn, 'De Wild.', 'Vahl', 1805))
         .to eq('De Wild. non Vahl')
     end
 
@@ -189,7 +189,7 @@ describe Utilities::Nomenclature::AuthorCitation do
 
     specify 'is only written for :iczn and :icn' do
       expect {
-        v.misapplication(:icnp, 'Smith', 'Jones')
+        v.misapplication(:icnp, 'Smith', 'Jones', nil)
       }.to raise_error(ArgumentError)
     end
   end

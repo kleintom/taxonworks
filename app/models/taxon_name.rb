@@ -1489,16 +1489,19 @@ class TaxonName < ApplicationRecord
       end
     end
 
+    # A family-group name's date of priority, when it isn't its own year
+    # (Art. 40.2.1, see TaxonName#nomenclature_date). This also cites a
+    # source date in another year than year_of_publication.
+    priority_year = nil
+    if FAMILY_RANK_NAMES_ICZN.include?(taxon.rank_string) && !mobj.present?
+      priority_year = cached_nomenclature_date&.year
+    end
+
     ay = Utilities::Nomenclature::AuthorCitation.author_year(
-      :iczn, a[0], y[0], recombination:
+      :iczn, a[0], y[0], recombination:, priority_year:
     )
 
     obj = misapplication.empty? ? nil : misapplication.first.object_taxon_name
-
-    if FAMILY_RANK_NAMES_ICZN.include?(taxon.rank_string) && !y.empty? && cached_nomenclature_date&.year != y.first && !mobj.present?
-      ay = ay + ' [' + cached_nomenclature_date&.year.to_s + ']'
-      ay = ay.gsub(' []', '')
-    end
 
     unless misapplication.empty? || obj.author_string.blank?
       ay += ' non ' + ([obj.author_string] + [obj.year_integer]).compact.join(', ')

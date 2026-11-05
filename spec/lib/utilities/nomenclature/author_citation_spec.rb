@@ -110,6 +110,33 @@ describe Utilities::Nomenclature::AuthorCitation do
       specify 'with neither is empty' do
         expect(v.author_year(:iczn, nil, nil, recombination: true)).to eq('')
       end
+
+      # THAUMALEIDAE, Art. 40.2.1, Rec. 40A.
+      context 'with a priority_year' do
+        specify 'cites it after the year' do
+          expect(
+            v.author_year(
+              :iczn, 'Bezzi', 1913, recombination: false, priority_year: 1847
+            )
+          ).to eq('Bezzi, 1913 [1847]')
+        end
+
+        specify 'not when it\'s the year' do
+          expect(
+            v.author_year(
+              :iczn, 'Bezzi', 1913, recombination: false, priority_year: 1913
+            )
+          ).to eq('Bezzi, 1913')
+        end
+
+        specify 'cites it with no year' do
+          expect(
+            v.author_year(
+              :iczn, 'Bezzi', nil, recombination: false, priority_year: 1847
+            )
+          ).to eq('Bezzi [1847]')
+        end
+      end
     end
 
     specify 'is only written for :iczn' do

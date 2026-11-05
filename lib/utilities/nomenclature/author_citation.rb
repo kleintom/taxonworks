@@ -102,8 +102,15 @@ module Utilities::Nomenclature::AuthorCitation
   #   name combined with a genus other than its original one. Nomenclaturally
   #   only a species-group name can be (Art. 51.3), so pass true only in that
   #   case.
+  # @param priority_year [Integer, nil] for a family-group name maintained
+  #   under Art. 40.2.1, the date of priority it takes from the name it
+  #   replaced; cited after the name's own year when it differs. Rec. 40A
+  #   encloses it in parentheses, "THAUMALEIDAE Bezzi, 1913 (1847)";
+  #   TaxonWorks uses square brackets, "Bezzi, 1913 [1847]".
   # @return [String] empty when there's neither author nor year
-  def self.author_year(nomenclatural_code, author, year, recombination:)
+  def self.author_year(
+    nomenclatural_code, author, year, recombination:, priority_year: nil
+  )
     if nomenclatural_code != :iczn
       raise ArgumentError, 'author_year is only written for :iczn, not ' \
         "#{nomenclatural_code.inspect}"
@@ -113,8 +120,13 @@ module Utilities::Nomenclature::AuthorCitation
       author = original_author_year(nomenclatural_code, author)
     end
     author_year = [author, year].compact.join(', ')
+    author_year = self.recombination(:iczn, author_year) if recombination
 
-    recombination ? self.recombination(:iczn, author_year) : author_year
+    if !priority_year.nil? && priority_year != year
+      author_year += " [#{priority_year}]"
+    end
+
+    author_year
   end
 
   # The author part of the citation of a name no longer in its original
